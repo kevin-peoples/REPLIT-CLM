@@ -1,0 +1,262 @@
+Prompt
+Build a full-stack Contract Lifecycle Management (CLM) web application using React (frontend) + Node.js/Express (backend) + PostgreSQL (database). The app uses Google OAuth 2.0 for authentication and Google Drive API for document storage in a Google Shared Drive. I already have a Google Cloud project with OAuth credentials and the Drive API enabled.
+
+AUTHENTICATION & USER MODEL
+
+Users sign in exclusively via Google OAuth 2.0. Use Passport.js with the Google strategy.
+On first login, create the user in the database. Pull their name, email, profile photo, and Google Workspace organizational unit / department from the Google Directory API (admin.googleapis.com) or the People API. Store the department on the user record — it is used for workflow routing.
+There are four roles: Submitter (default for all authenticated users), Legal Reviewer, Designated Signer, and Admin. A user can hold multiple roles. Roles are assigned by an Admin through the admin panel.
+Protect all routes with middleware that checks authentication. Protect admin routes with middleware that checks the Admin role.
+Use express-session with a PostgreSQL session store (connect-pg-simple). Store the Google access token and refresh token so the app can make Drive API calls on behalf of the user.
+Also configure a Google Service Account with domain-wide delegation. The service account is used for backend operations (AI screening, automated reminders, file management). Store its credentials securely in environment variables.
+
+
+DASHBOARD (Home Page After Login)
+When a user logs in, they land on a dashboard. The dashboard has:
+
+Contract Status Summary Cards — show counts of contracts by status: Draft, AI Screening, In Legal Review, Returned for Edits, Approved / Pending Signature, Awaiting Executed Upload, Fully Executed, Expired. Each card is clickable and filters the contract list below.
+Report Widgets (Feature #5 — Dashboard Analytics):
+
+Total Active Contract Value — sum of all contract values for active (non-expired) contracts. Show separately for buy-side and sell-side.
+Contracts by Type — bar or pie chart showing distribution across contract types.
+Approaching Expirations — list of contracts expiring within the next 30/60/90 days (toggleable).
+Average Cycle Time — average number of days from submission to fully executed, broken down by contract type.
+Bottleneck View — shows which workflow stage contracts have been sitting at longest. Highlight any contract sitting at a stage for more than X days (admin-configurable threshold).
+Legal Reviewer Workload — shows count of contracts currently assigned to each legal reviewer.
+Admin can configure which widgets appear on the dashboard and set the default view.
+
+
+My Contracts Table — a filterable, sortable, paginated table showing the user's contracts (submitted by them, assigned to them for review, or assigned to them for signing). Columns: Contract Name, Type, Direction (Buy/Sell), Status, Counterparty, Value, Submitted Date, Last Updated. Clicking a row opens the contract detail view.
+"Submit New Contract" button — prominent call-to-action.
+
+
+CONTRACT SUBMISSION FLOW
+
+User clicks "Submit New Contract."
+Step 1 — Direction: Choose Buy-side (we are purchasing) or Sell-side (we are the provider / revenue contract).
+Step 2 — Contract Type: Dropdown populated from the admin-managed contract types table. Seed the database with these types:
+
+Service Agreement
+NDA / Confidentiality Agreement
+Vendor / Supplier Agreement
+Lease / Real Estate Agreement
+Employment / Contractor Agreement
+Software / License Agreement
+Revenue / Provider Agreement (sell-side)
+
+
+Step 3 — Dynamic Form: Each contract type has its own form, managed by the admin. The form is defined as a JSON schema in the database (field name, field type, required flag, validation rules, display order). Render the form dynamically from this schema. Common fields across all types should include:
+
+Contract Name (text, required)
+Counterparty Legal Name (text, required)
+Counterparty Address (text, required)
+Contract Value (currency, required)
+Effective Date (date, required)
+Expiration Date (date, required)
+Auto-Renewal (yes/no toggle)
+Notice Period for Termination (number of days)
+Description / Notes (textarea)
+Department (auto-populated from user's Google Workspace department, editable)
+
+
+Step 4 — Document Attachment: The user can either:
+
+Upload from computer — file picker accepting PDF, DOCX, DOC.
+Link from Google Drive — use the Google Picker API to let the user select a file from their Drive.
+In both cases, the app copies/moves the file into the designated Google Shared Drive. Create a folder structure in the Shared Drive: /{Year}/{Contract Type}/{Contract Name} - {Counterparty}/. Set permissions so the submitter and the service account have access. Store the Google Drive file ID in the database.
+
+
+Step 5 — Review & Submit: Show a summary of all entered data and the attached document. User confirms and submits. Status changes to "AI Screening."
+
+
+AI PRE-SCREENING (Feature #3 — AI Contract Intelligence & Risk Scoring)
+When a contract is submitted, a background job triggers AI review using the Anthropic Claude API (or OpenAI — use whichever is available; make the provider configurable via environment variable).
+The AI screening process:
+
+Retrieve the document from Google Drive using the service account.
+Extract text from the document (use pdf-parse for PDFs, mammoth for DOCX).
+Send the extracted text to the LLM with a structured prompt that asks it to validate admin-configured criteria and return a JSON response.
+Admin-Configurable Criteria — the admin panel has a "Screening Criteria" section where the admin defines validation rules. Seed with these defaults:
+CriteriaDescriptionEnabled by DefaultCompany Legal NameCounterparty name in document matches the name entered in the formYesAddress VerificationAddress in document matches the address entered in the formYesRequired ClausesCheck for presence of: indemnification, termination, confidentiality (admin can add/remove clause types)YesDates Present & ValidEffective and expiration dates exist and are logically valid (expiration after effective)YesParties NamedNo blank placeholders like [PARTY NAME] or TBD in party fieldsYesSignature BlocksAll required signature blocks are presentYesContract ValueValue stated in document is present and within the authorized range for this contract typeYes
+
+Risk Score: The AI returns a score: Low (0-1 issues), Medium (2-3 issues), High (4+ issues). Each criterion gets a pass/fail with an explanation.
+Result Handling:
+
+All pass (Low risk): Contract automatically advances to the next workflow stage (Legal Review).
+Medium risk: Contract advances to Legal Review but the risk summary is flagged prominently on the contract detail page.
+High risk: Contract is returned to the submitter with the AI's findings displayed as actionable feedback. Submitter must fix and resubmit.
+
+
+Store the full AI screening result (JSON) in the database linked to the contract, including timestamp and the criteria version used.
+
+
+WORKFLOW ENGINE
+The workflow engine is the core of the app. Workflows are fully admin-configurable.
+Workflow Determination: When a contract is submitted, the system determines which workflow to use based on three factors:
+
+Direction — Buy-side or Sell-side
+Department — from the submitter's Google Workspace profile
+Contract Value Tier — the admin defines 4+ tiers with dollar thresholds (e.g., Tier 1: $0–$10K, Tier 2: $10K–$50K, Tier 3: $50K–$250K, Tier 4: $250K+). Tiers are admin-configurable with no hard limit on the number of tiers.
+
+Workflow Definition: Each workflow is a sequence of stages. The admin creates workflows in the admin panel with:
+
+Workflow name
+Matching rules (direction + department + value tier range)
+Ordered list of stages, where each stage has:
+
+Stage name (e.g., "Legal Review", "Finance Review", "VP Approval")
+Assigned role or specific user(s)
+Can the reviewer send the contract back to the submitter? (yes/no toggle — yes by default)
+Is this stage optional or required?
+Designated signer for the signature stage (specific user, determined by department + tier)
+
+
+
+Seed a default workflow:
+
+Stage 1: AI Screening (automatic)
+Stage 2: Legal Review (assigned to Legal Reviewer role)
+Stage 3: Signature (assigned to Designated Signer — determined by department + value tier)
+Stage 4: Awaiting Executed Upload (assigned to Submitter)
+
+Workflow Behavior:
+
+At each review stage, the reviewer sees the contract details, the attached document (embedded viewer or link to Drive), the AI screening results, all prior comments, and action buttons: Approve, Send Back for Edits, Add Comment.
+Send Back for Edits returns the contract to the submitter with required comments explaining what needs to change. There is no limit on how many times a contract can bounce between reviewer and submitter.
+When the submitter resubmits after edits, the contract returns to the same stage it was sent back from. The AI screening does not re-run automatically (but a reviewer can trigger a re-screen manually).
+Approve advances the contract to the next stage.
+Each stage transition is logged in an audit trail (who, when, action, comments).
+
+Signature Stage:
+
+When a contract reaches the signature stage, the system generates or retrieves the PDF version from Google Drive and sends it as an email attachment to the designated signer using Nodemailer (configure SMTP via environment variables, or use the Gmail API with the service account).
+The email includes a link back to the contract in the app where the signer can confirm receipt.
+After the signer signs externally, the status moves to "Awaiting Executed Upload."
+
+Executed Upload Stage:
+
+The submitter (or any authorized user) uploads the fully executed (signed by all parties) document.
+The app stores the executed version in Google Drive alongside the original, in the same folder, with a clear naming convention: {Contract Name} - EXECUTED.pdf.
+Email reminders fire on a configurable schedule (e.g., every 3 days) until the executed version is uploaded. After 30 days with no upload, escalate the reminder to the submitter's manager or the admin.
+Once uploaded, status changes to "Fully Executed" and the obligation tracking engine activates.
+
+
+OBLIGATION & MILESTONE TRACKING (Feature #2)
+After a contract reaches "Fully Executed" status, the obligation tracking engine activates.
+Obligation Types (admin-configurable, can be toggled on/off per contract type):
+Obligation TypeDescriptionDefault Reminder ScheduleRenewal / ExpirationContract expiration or renewal date90, 60, 30, 14, 7 days beforePayment MilestonesScheduled payment due dates14, 7, 1 days before; 1, 7 days after (overdue)Notice PeriodsDeadline to provide termination or non-renewal notice120, 90, 60 days before the notice deadlinePerformance ReviewScheduled review dates for vendor/contractor performance14, 7 days beforeInsurance / Compliance CertificatesExpiration of required certificates60, 30, 14 days beforeRevenue RecognitionMilestones for recognizing revenue (sell-side)14, 7 days before
+How it works:
+
+When a contract becomes Fully Executed, the system prompts the user to confirm or enter obligation dates. Pre-populate from the form data where possible (expiration date, payment terms).
+The admin configures which obligation types are active per contract type. For example, NDAs might only have Renewal/Expiration and Notice Period, while Vendor Agreements have all six.
+A scheduled cron job runs daily, checks all obligations, and sends email reminders to the contract's submitter and any designated watchers.
+Obligations appear on the dashboard widget and on the contract detail page as a timeline.
+Users can mark obligations as "Completed" or "Acknowledged." Overdue obligations surface prominently on the dashboard.
+The admin can configure the reminder schedule (which intervals) per obligation type.
+
+
+ADMIN PANEL
+The admin panel is accessible only to users with the Admin role. It includes:
+
+Contract Types Management — CRUD for contract types. Each type has a name, description, and a JSON form schema defining the fields for that type's submission form. Provide a form builder UI (drag-and-drop or add/remove/reorder fields) so the admin doesn't need to write JSON.
+Workflow Builder — visual or list-based workflow builder. Admin creates workflows, defines matching rules (direction × department × value tier), and adds ordered stages with assigned reviewers/signers.
+Approval Tiers — manage the dollar-amount tiers and the designated signer for each department × tier combination. This is a matrix: rows = departments, columns = tiers, cells = designated signer (user).
+AI Screening Criteria — toggle criteria on/off, add custom criteria, edit the descriptions and thresholds. Manage the required clauses list.
+Obligation Configuration — toggle obligation types on/off per contract type. Configure reminder schedules.
+User Management — view all users, assign/remove roles (Submitter, Legal Reviewer, Designated Signer, Admin). Display user's department from Google Workspace. Allow manual department override.
+Dashboard Configuration — choose which widgets appear on the default dashboard, set thresholds (e.g., "flag contracts sitting at a stage for more than 7 days").
+Company Information — manage the company's legal name, address, and other details used by the AI screening to verify contracts.
+Audit Log Viewer — searchable, filterable log of all contract actions (submissions, approvals, rejections, comments, status changes, AI screening results).
+
+
+DATABASE SCHEMA (PostgreSQL)
+Design the schema with these core tables (add indexes and foreign keys appropriately):
+
+users — id, google_id, email, name, avatar_url, department, roles (array or join table), created_at, updated_at
+contract_types — id, name, description, form_schema (JSONB), is_active, created_at, updated_at
+contracts — id, name, type_id, direction (buy/sell), status, submitter_id, counterparty_name, counterparty_address, contract_value, effective_date, expiration_date, auto_renewal, notice_period_days, description, department, drive_file_id, executed_drive_file_id, current_workflow_id, current_stage_index, form_data (JSONB for dynamic fields), created_at, updated_at
+workflows — id, name, direction_match, department_match, value_tier_min, value_tier_max, stages (JSONB array), is_active, created_at, updated_at
+approval_tiers — id, tier_name, min_value, max_value, department, signer_user_id, created_at, updated_at
+contract_comments — id, contract_id, user_id, stage_name, comment_text, created_at
+contract_audit_log — id, contract_id, user_id, action, details (JSONB), stage_name, created_at
+ai_screening_results — id, contract_id, risk_score, criteria_results (JSONB), screened_at, criteria_version
+obligations — id, contract_id, obligation_type, description, due_date, status (pending/completed/overdue/acknowledged), completed_at, created_at
+obligation_reminders_sent — id, obligation_id, sent_at, recipient_email
+obligation_configs — id, contract_type_id, obligation_type, is_enabled, reminder_days (integer array, e.g. [90,60,30,14,7])
+dashboard_configs — id, user_id (null for global default), widgets (JSONB), settings (JSONB)
+company_info — id, legal_name, address, other_details (JSONB)
+
+Use Knex.js or Drizzle ORM for migrations and queries.
+
+GOOGLE DRIVE INTEGRATION
+
+Use the googleapis npm package.
+Shared Drive ID is stored as an environment variable: GOOGLE_SHARED_DRIVE_ID.
+When a contract document is submitted:
+
+Create the folder path /{Year}/{Contract Type}/{Contract Name} - {Counterparty}/ in the Shared Drive if it doesn't exist.
+If uploaded from computer, upload the file to that folder.
+If linked from Google Drive, copy the file to that folder.
+Set permissions: submitter gets "writer" access, service account inherits from Shared Drive membership.
+Store the Drive file ID in the contracts table.
+
+
+For the executed version upload, store it in the same folder with " - EXECUTED" appended to the filename.
+Use the Drive API's file viewer URL to embed/link documents in the contract detail view.
+
+
+EMAIL NOTIFICATIONS
+Use Nodemailer with SMTP (or Gmail API). Send emails for:
+
+Contract submitted (to submitter — confirmation)
+AI screening failed / high risk (to submitter — with findings)
+Contract assigned for review (to legal reviewer)
+Contract sent back for edits (to submitter — with reviewer comments)
+Contract approved and moving to next stage (to submitter)
+Contract ready for signature (to designated signer — with PDF attached)
+Awaiting executed upload reminders (to submitter — every 3 days, escalate after 30 days)
+Obligation reminders (to submitter and watchers — per schedule)
+Contract fully executed (to all participants)
+
+All email templates should be clean, professional HTML. Include a direct link to the contract in the app.
+
+UI/UX GUIDELINES
+
+Use a professional, clean design system. Use Tailwind CSS with a component library like shadcn/ui or Ant Design.
+Responsive design — must work on desktop and tablet.
+Sidebar navigation with: Dashboard, My Contracts, All Contracts (for Legal Reviewers and Admins), Submit Contract, Admin (for Admin role only).
+Use a dark/light mode toggle.
+Color-code contract statuses consistently across all views.
+Use toast notifications for user actions (submitted, approved, etc.).
+Show loading states and skeleton screens — no blank pages while data loads.
+
+
+ENVIRONMENT VARIABLES NEEDED
+DATABASE_URL=
+GOOGLE_CLIENT_ID=
+GOOGLE_CLIENT_SECRET=
+GOOGLE_REDIRECT_URI=
+GOOGLE_SHARED_DRIVE_ID=
+GOOGLE_SERVICE_ACCOUNT_KEY= (JSON stringified)
+SESSION_SECRET=
+AI_PROVIDER= (anthropic or openai)
+AI_API_KEY=
+SMTP_HOST=
+SMTP_PORT=
+SMTP_USER=
+SMTP_PASS=
+APP_URL= (base URL for links in emails)
+
+IMPORTANT IMPLEMENTATION NOTES
+
+Start by building the database schema and migrations first.
+Then build authentication (Google OAuth + session).
+Then build the admin panel so I can configure contract types, workflows, tiers, and criteria before testing the submission flow.
+Then build the contract submission flow including Drive integration.
+Then build the AI screening integration.
+Then build the workflow engine (review, approve, send back, signature, executed upload).
+Then build the obligation tracking and reminder cron jobs.
+Then build the dashboard analytics widgets.
+Write API routes RESTfully: /api/contracts, /api/admin/contract-types, /api/admin/workflows, etc.
+Use proper error handling and input validation on all endpoints.
+All timestamps should be stored in UTC.
