@@ -1,8 +1,46 @@
 import { Router, type IRouter } from "express";
 import passport from "passport";
+import { db, usersTable } from "@workspace/db";
+import { eq } from "drizzle-orm";
 import { requireAuth } from "../middlewares/auth";
 
 const router: IRouter = Router();
+
+const DEMO_USERS: Record<string, string> = {
+  admin:      "demo_admin",
+  submitter:  "demo_submitter",
+  legal:      "demo_legal",
+  signer:     "demo_signer",
+};
+
+router.post("/auth/demo-login", async (req, res): Promise<void> => {
+  const { role } = req.body as { role?: string };
+  const googleId = role ? DEMO_USERS[role] : undefined;
+  if (!googleId) {
+    res.status(400).json({ error: "Invalid demo role" });
+    return;
+  }
+
+  const [user] = await db.select().from(usersTable).where(eq(usersTable.googleId, googleId));
+  if (!user) {
+    res.status(404).json({ error: "Demo user not found" });
+    return;
+  }
+
+  req.login(user, (loginErr) => {
+    if (loginErr) {
+      res.status(500).json({ error: "Login failed" });
+      return;
+    }
+    req.session.save((saveErr) => {
+      if (saveErr) {
+        res.status(500).json({ error: "Session save failed" });
+        return;
+      }
+      res.json({ ok: true, user: { id: user.id, name: user.name, roles: user.roles } });
+    });
+  });
+});
 
 router.get(
   "/auth/google",
