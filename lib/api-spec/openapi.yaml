@@ -1,22 +1,35 @@
 openapi: 3.1.0
 info:
-  # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: Contract Lifecycle Management API
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: auth
+    description: Authentication operations
+  - name: contracts
+    description: Contract management
+  - name: workflows
+    description: Workflow management
+  - name: users
+    description: User management
+  - name: admin
+    description: Admin panel
+  - name: obligations
+    description: Obligation tracking
+  - name: dashboard
+    description: Dashboard analytics
+
 paths:
   /healthz:
     get:
       operationId: healthCheck
       tags: [health]
       summary: Health check
-      description: Returns server health status
       responses:
         "200":
           description: Healthy
@@ -24,6 +37,859 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  # Auth
+  /auth/me:
+    get:
+      operationId: getMe
+      tags: [auth]
+      summary: Get current authenticated user
+      responses:
+        "200":
+          description: Current user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /auth/logout:
+    post:
+      operationId: logout
+      tags: [auth]
+      summary: Log out current user
+      responses:
+        "200":
+          description: Logged out
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessMessage"
+
+  # Contracts
+  /contracts:
+    get:
+      operationId: listContracts
+      tags: [contracts]
+      summary: List contracts visible to the current user
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+        - name: type
+          in: query
+          schema:
+            type: string
+        - name: direction
+          in: query
+          schema:
+            type: string
+        - name: page
+          in: query
+          schema:
+            type: integer
+        - name: limit
+          in: query
+          schema:
+            type: integer
+        - name: search
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: List of contracts
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContractListResponse"
+
+    post:
+      operationId: createContract
+      tags: [contracts]
+      summary: Create a new contract
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateContractBody"
+      responses:
+        "201":
+          description: Contract created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Contract"
+
+  /contracts/{id}:
+    get:
+      operationId: getContract
+      tags: [contracts]
+      summary: Get a contract by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Contract detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContractDetail"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+    patch:
+      operationId: updateContract
+      tags: [contracts]
+      summary: Update a contract
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateContractBody"
+      responses:
+        "200":
+          description: Updated contract
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Contract"
+
+  /contracts/{id}/submit:
+    post:
+      operationId: submitContract
+      tags: [contracts]
+      summary: Submit a contract for review (triggers AI screening)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Contract submitted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Contract"
+
+  /contracts/{id}/resubmit:
+    post:
+      operationId: resubmitContract
+      tags: [contracts]
+      summary: Resubmit a contract after edits
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Contract resubmitted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Contract"
+
+  /contracts/{id}/rescreen:
+    post:
+      operationId: rescreenContract
+      tags: [contracts]
+      summary: Manually trigger AI re-screening
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Screening triggered
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessMessage"
+
+  /contracts/{id}/approve:
+    post:
+      operationId: approveContract
+      tags: [contracts]
+      summary: Approve the current workflow stage
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CommentBody"
+      responses:
+        "200":
+          description: Stage approved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Contract"
+
+  /contracts/{id}/send-back:
+    post:
+      operationId: sendBackContract
+      tags: [contracts]
+      summary: Send a contract back to submitter for edits
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CommentBody"
+      responses:
+        "200":
+          description: Sent back
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Contract"
+
+  /contracts/{id}/comment:
+    post:
+      operationId: addComment
+      tags: [contracts]
+      summary: Add a comment to a contract
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CommentBody"
+      responses:
+        "201":
+          description: Comment added
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuditEntry"
+
+  /contracts/{id}/upload-document:
+    post:
+      operationId: uploadDocument
+      tags: [contracts]
+      summary: Upload a document for a contract
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UploadDocumentBody"
+      responses:
+        "200":
+          description: Document uploaded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Contract"
+
+  /contracts/{id}/upload-executed:
+    post:
+      operationId: uploadExecutedDocument
+      tags: [contracts]
+      summary: Upload the fully executed contract document
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UploadDocumentBody"
+      responses:
+        "200":
+          description: Executed document uploaded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Contract"
+
+  /contracts/{id}/audit:
+    get:
+      operationId: getContractAudit
+      tags: [contracts]
+      summary: Get audit trail for a contract
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Audit trail
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AuditEntry"
+
+  /contracts/{id}/screening:
+    get:
+      operationId: getContractScreening
+      tags: [contracts]
+      summary: Get AI screening results for a contract
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Screening results
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScreeningResult"
+
+  # Contract Types
+  /contract-types:
+    get:
+      operationId: listContractTypes
+      tags: [contracts]
+      summary: List all contract types
+      responses:
+        "200":
+          description: Contract types
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ContractType"
+
+  # Obligations
+  /contracts/{id}/obligations:
+    get:
+      operationId: listObligations
+      tags: [obligations]
+      summary: List obligations for a contract
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Obligations
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Obligation"
+
+    post:
+      operationId: createObligation
+      tags: [obligations]
+      summary: Create an obligation for a contract
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateObligationBody"
+      responses:
+        "201":
+          description: Obligation created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Obligation"
+
+  /obligations/{id}/complete:
+    post:
+      operationId: completeObligation
+      tags: [obligations]
+      summary: Mark an obligation as completed
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Obligation completed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Obligation"
+
+  # Dashboard
+  /dashboard/summary:
+    get:
+      operationId: getDashboardSummary
+      tags: [dashboard]
+      summary: Get contract status counts and analytics summary
+      responses:
+        "200":
+          description: Dashboard summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DashboardSummary"
+
+  /dashboard/expiring:
+    get:
+      operationId: getExpiringContracts
+      tags: [dashboard]
+      summary: Get contracts expiring soon
+      parameters:
+        - name: days
+          in: query
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Expiring contracts
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Contract"
+
+  /dashboard/obligations-due:
+    get:
+      operationId: getObligationsDue
+      tags: [dashboard]
+      summary: Get upcoming and overdue obligations
+      responses:
+        "200":
+          description: Obligations due
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Obligation"
+
+  /dashboard/bottlenecks:
+    get:
+      operationId: getBottlenecks
+      tags: [dashboard]
+      summary: Get contracts stuck at a stage for too long
+      responses:
+        "200":
+          description: Bottleneck contracts
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/BottleneckContract"
+
+  /dashboard/workload:
+    get:
+      operationId: getReviewerWorkload
+      tags: [dashboard]
+      summary: Get reviewer workload counts
+      responses:
+        "200":
+          description: Reviewer workload
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ReviewerWorkload"
+
+  # Users
+  /users:
+    get:
+      operationId: listUsers
+      tags: [users]
+      summary: List all users (admin only)
+      responses:
+        "200":
+          description: Users list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/User"
+
+  /users/{id}/roles:
+    patch:
+      operationId: updateUserRoles
+      tags: [users]
+      summary: Update user roles (admin only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateRolesBody"
+      responses:
+        "200":
+          description: Roles updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+
+  # Admin - Contract Types
+  /admin/contract-types:
+    post:
+      operationId: createContractType
+      tags: [admin]
+      summary: Create a contract type (admin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateContractTypeBody"
+      responses:
+        "201":
+          description: Contract type created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContractType"
+
+  /admin/contract-types/{id}:
+    patch:
+      operationId: updateContractType
+      tags: [admin]
+      summary: Update a contract type (admin only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateContractTypeBody"
+      responses:
+        "200":
+          description: Updated contract type
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContractType"
+
+    delete:
+      operationId: deleteContractType
+      tags: [admin]
+      summary: Delete a contract type (admin only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessMessage"
+
+  # Admin - Workflows
+  /admin/workflows:
+    get:
+      operationId: listWorkflows
+      tags: [admin]
+      summary: List all workflow definitions (admin only)
+      responses:
+        "200":
+          description: Workflows
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/WorkflowDefinition"
+
+    post:
+      operationId: createWorkflow
+      tags: [admin]
+      summary: Create a workflow definition (admin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateWorkflowBody"
+      responses:
+        "201":
+          description: Workflow created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkflowDefinition"
+
+  /admin/workflows/{id}:
+    patch:
+      operationId: updateWorkflow
+      tags: [admin]
+      summary: Update a workflow definition (admin only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateWorkflowBody"
+      responses:
+        "200":
+          description: Updated workflow
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkflowDefinition"
+
+  # Admin - Screening Criteria
+  /admin/screening-criteria:
+    get:
+      operationId: listScreeningCriteria
+      tags: [admin]
+      summary: List AI screening criteria (admin only)
+      responses:
+        "200":
+          description: Screening criteria
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ScreeningCriterion"
+
+    post:
+      operationId: createScreeningCriterion
+      tags: [admin]
+      summary: Create a screening criterion (admin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateScreeningCriterionBody"
+      responses:
+        "201":
+          description: Criterion created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScreeningCriterion"
+
+  /admin/screening-criteria/{id}:
+    patch:
+      operationId: updateScreeningCriterion
+      tags: [admin]
+      summary: Update a screening criterion (admin only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateScreeningCriterionBody"
+      responses:
+        "200":
+          description: Updated criterion
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScreeningCriterion"
+
+  # Admin - Value Tiers
+  /admin/value-tiers:
+    get:
+      operationId: listValueTiers
+      tags: [admin]
+      summary: List value tiers (admin only)
+      responses:
+        "200":
+          description: Value tiers
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ValueTier"
+
+    post:
+      operationId: createValueTier
+      tags: [admin]
+      summary: Create a value tier (admin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateValueTierBody"
+      responses:
+        "201":
+          description: Value tier created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ValueTier"
+
+  /admin/value-tiers/{id}:
+    patch:
+      operationId: updateValueTier
+      tags: [admin]
+      summary: Update a value tier (admin only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateValueTierBody"
+      responses:
+        "200":
+          description: Updated value tier
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ValueTier"
+
+    delete:
+      operationId: deleteValueTier
+      tags: [admin]
+      summary: Delete a value tier (admin only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessMessage"
+
+  # Admin - Dashboard Config
+  /admin/dashboard-config:
+    get:
+      operationId: getDashboardConfig
+      tags: [admin]
+      summary: Get dashboard widget configuration
+      responses:
+        "200":
+          description: Dashboard config
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DashboardConfig"
+
+    patch:
+      operationId: updateDashboardConfig
+      tags: [admin]
+      summary: Update dashboard widget configuration (admin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DashboardConfig"
+      responses:
+        "200":
+          description: Config updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DashboardConfig"
+
 components:
   schemas:
     HealthStatus:
@@ -34,3 +900,691 @@ components:
       required:
         - status
 
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+      required:
+        - error
+
+    SuccessMessage:
+      type: object
+      properties:
+        message:
+          type: string
+      required:
+        - message
+
+    User:
+      type: object
+      properties:
+        id:
+          type: integer
+        googleId:
+          type: string
+        email:
+          type: string
+        name:
+          type: string
+        photoUrl:
+          type: ["string", "null"]
+        department:
+          type: ["string", "null"]
+        roles:
+          type: array
+          items:
+            type: string
+        createdAt:
+          type: string
+      required:
+        - id
+        - googleId
+        - email
+        - name
+        - photoUrl
+        - department
+        - roles
+        - createdAt
+
+    UpdateRolesBody:
+      type: object
+      properties:
+        roles:
+          type: array
+          items:
+            type: string
+      required:
+        - roles
+
+    Contract:
+      type: object
+      properties:
+        id:
+          type: integer
+        contractName:
+          type: string
+        contractTypeId:
+          type: integer
+        contractTypeName:
+          type: ["string", "null"]
+        direction:
+          type: string
+          enum: [buy, sell]
+        status:
+          type: string
+        counterpartyName:
+          type: string
+        counterpartyAddress:
+          type: ["string", "null"]
+        contractValue:
+          type: ["number", "null"]
+        effectiveDate:
+          type: ["string", "null"]
+        expirationDate:
+          type: ["string", "null"]
+        autoRenewal:
+          type: boolean
+        noticePeriodDays:
+          type: ["integer", "null"]
+        description:
+          type: ["string", "null"]
+        department:
+          type: ["string", "null"]
+        driveFileId:
+          type: ["string", "null"]
+        executedDriveFileId:
+          type: ["string", "null"]
+        submittedById:
+          type: integer
+        submittedByName:
+          type: ["string", "null"]
+        currentStageId:
+          type: ["integer", "null"]
+        formData:
+          type: ["object", "null"]
+        aiRiskScore:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+        updatedAt:
+          type: string
+      required:
+        - id
+        - contractName
+        - contractTypeId
+        - direction
+        - status
+        - counterpartyName
+        - autoRenewal
+        - submittedById
+        - createdAt
+        - updatedAt
+
+    ContractDetail:
+      allOf:
+        - $ref: "#/components/schemas/Contract"
+        - type: object
+          properties:
+            auditTrail:
+              type: array
+              items:
+                $ref: "#/components/schemas/AuditEntry"
+            screeningResult:
+              $ref: "#/components/schemas/ScreeningResult"
+            obligations:
+              type: array
+              items:
+                $ref: "#/components/schemas/Obligation"
+            currentStage:
+              $ref: "#/components/schemas/WorkflowStage"
+            workflowStages:
+              type: array
+              items:
+                $ref: "#/components/schemas/WorkflowStage"
+
+    ContractListResponse:
+      type: object
+      properties:
+        contracts:
+          type: array
+          items:
+            $ref: "#/components/schemas/Contract"
+        total:
+          type: integer
+        page:
+          type: integer
+        limit:
+          type: integer
+      required:
+        - contracts
+        - total
+        - page
+        - limit
+
+    CreateContractBody:
+      type: object
+      properties:
+        contractName:
+          type: string
+        contractTypeId:
+          type: integer
+        direction:
+          type: string
+          enum: [buy, sell]
+        counterpartyName:
+          type: string
+        counterpartyAddress:
+          type: ["string", "null"]
+        contractValue:
+          type: ["number", "null"]
+        effectiveDate:
+          type: ["string", "null"]
+        expirationDate:
+          type: ["string", "null"]
+        autoRenewal:
+          type: boolean
+        noticePeriodDays:
+          type: ["integer", "null"]
+        description:
+          type: ["string", "null"]
+        department:
+          type: ["string", "null"]
+        driveFileId:
+          type: ["string", "null"]
+        formData:
+          type: ["object", "null"]
+      required:
+        - contractName
+        - contractTypeId
+        - direction
+        - counterpartyName
+        - autoRenewal
+
+    UpdateContractBody:
+      type: object
+      properties:
+        contractName:
+          type: string
+        counterpartyName:
+          type: string
+        counterpartyAddress:
+          type: ["string", "null"]
+        contractValue:
+          type: ["number", "null"]
+        effectiveDate:
+          type: ["string", "null"]
+        expirationDate:
+          type: ["string", "null"]
+        autoRenewal:
+          type: boolean
+        noticePeriodDays:
+          type: ["integer", "null"]
+        description:
+          type: ["string", "null"]
+        department:
+          type: ["string", "null"]
+        driveFileId:
+          type: ["string", "null"]
+        formData:
+          type: ["object", "null"]
+
+    UploadDocumentBody:
+      type: object
+      properties:
+        driveFileId:
+          type: string
+        fileName:
+          type: string
+      required:
+        - driveFileId
+        - fileName
+
+    CommentBody:
+      type: object
+      properties:
+        comment:
+          type: string
+      required:
+        - comment
+
+    ContractType:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        description:
+          type: ["string", "null"]
+        formSchema:
+          type: object
+        obligationTypes:
+          type: array
+          items:
+            type: string
+        isActive:
+          type: boolean
+        createdAt:
+          type: string
+      required:
+        - id
+        - name
+        - formSchema
+        - isActive
+        - createdAt
+
+    CreateContractTypeBody:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: ["string", "null"]
+        formSchema:
+          type: object
+        obligationTypes:
+          type: array
+          items:
+            type: string
+        isActive:
+          type: boolean
+      required:
+        - name
+        - formSchema
+
+    WorkflowDefinition:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        direction:
+          type: ["string", "null"]
+        department:
+          type: ["string", "null"]
+        minTierId:
+          type: ["integer", "null"]
+        maxTierId:
+          type: ["integer", "null"]
+        stages:
+          type: array
+          items:
+            $ref: "#/components/schemas/WorkflowStage"
+        isDefault:
+          type: boolean
+        createdAt:
+          type: string
+      required:
+        - id
+        - name
+        - stages
+        - isDefault
+        - createdAt
+
+    WorkflowStage:
+      type: object
+      properties:
+        id:
+          type: integer
+        workflowId:
+          type: integer
+        name:
+          type: string
+        stageOrder:
+          type: integer
+        assignedRole:
+          type: ["string", "null"]
+        assignedUserId:
+          type: ["integer", "null"]
+        assignedUserName:
+          type: ["string", "null"]
+        canSendBack:
+          type: boolean
+        isOptional:
+          type: boolean
+        isSigned:
+          type: boolean
+      required:
+        - id
+        - workflowId
+        - name
+        - stageOrder
+        - canSendBack
+        - isOptional
+        - isSigned
+
+    CreateWorkflowBody:
+      type: object
+      properties:
+        name:
+          type: string
+        direction:
+          type: ["string", "null"]
+        department:
+          type: ["string", "null"]
+        minTierId:
+          type: ["integer", "null"]
+        maxTierId:
+          type: ["integer", "null"]
+        isDefault:
+          type: boolean
+        stages:
+          type: array
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+              stageOrder:
+                type: integer
+              assignedRole:
+                type: ["string", "null"]
+              assignedUserId:
+                type: ["integer", "null"]
+              canSendBack:
+                type: boolean
+              isOptional:
+                type: boolean
+              isSigned:
+                type: boolean
+            required:
+              - name
+              - stageOrder
+              - canSendBack
+              - isOptional
+              - isSigned
+      required:
+        - name
+        - stages
+
+    ScreeningResult:
+      type: object
+      properties:
+        id:
+          type: integer
+        contractId:
+          type: integer
+        riskScore:
+          type: string
+          enum: [low, medium, high]
+        criteriaResults:
+          type: array
+          items:
+            $ref: "#/components/schemas/CriterionResult"
+        rawResponse:
+          type: ["object", "null"]
+        createdAt:
+          type: string
+      required:
+        - id
+        - contractId
+        - riskScore
+        - criteriaResults
+        - createdAt
+
+    CriterionResult:
+      type: object
+      properties:
+        criterionId:
+          type: integer
+        criterionName:
+          type: string
+        passed:
+          type: boolean
+        explanation:
+          type: string
+      required:
+        - criterionId
+        - criterionName
+        - passed
+        - explanation
+
+    ScreeningCriterion:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        description:
+          type: string
+        isEnabled:
+          type: boolean
+        createdAt:
+          type: string
+      required:
+        - id
+        - name
+        - description
+        - isEnabled
+        - createdAt
+
+    CreateScreeningCriterionBody:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        isEnabled:
+          type: boolean
+      required:
+        - name
+        - description
+        - isEnabled
+
+    ValueTier:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        minValue:
+          type: number
+        maxValue:
+          type: ["number", "null"]
+        displayOrder:
+          type: integer
+      required:
+        - id
+        - name
+        - minValue
+        - displayOrder
+
+    CreateValueTierBody:
+      type: object
+      properties:
+        name:
+          type: string
+        minValue:
+          type: number
+        maxValue:
+          type: ["number", "null"]
+        displayOrder:
+          type: integer
+      required:
+        - name
+        - minValue
+        - displayOrder
+
+    Obligation:
+      type: object
+      properties:
+        id:
+          type: integer
+        contractId:
+          type: integer
+        contractName:
+          type: ["string", "null"]
+        obligationType:
+          type: string
+        description:
+          type: string
+        dueDate:
+          type: string
+        status:
+          type: string
+          enum: [pending, completed, overdue, acknowledged]
+        completedAt:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+      required:
+        - id
+        - contractId
+        - obligationType
+        - description
+        - dueDate
+        - status
+        - createdAt
+
+    CreateObligationBody:
+      type: object
+      properties:
+        obligationType:
+          type: string
+        description:
+          type: string
+        dueDate:
+          type: string
+        status:
+          type: string
+          enum: [pending, completed, overdue, acknowledged]
+      required:
+        - obligationType
+        - description
+        - dueDate
+
+    AuditEntry:
+      type: object
+      properties:
+        id:
+          type: integer
+        contractId:
+          type: integer
+        userId:
+          type: ["integer", "null"]
+        userName:
+          type: ["string", "null"]
+        action:
+          type: string
+        comment:
+          type: ["string", "null"]
+        fromStatus:
+          type: ["string", "null"]
+        toStatus:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+      required:
+        - id
+        - contractId
+        - action
+        - createdAt
+
+    DashboardSummary:
+      type: object
+      properties:
+        statusCounts:
+          type: object
+          additionalProperties:
+            type: integer
+        totalActiveValue:
+          type: number
+        totalBuySideValue:
+          type: number
+        totalSellSideValue:
+          type: number
+        contractsByType:
+          type: array
+          items:
+            type: object
+            properties:
+              typeName:
+                type: string
+              count:
+                type: integer
+            required:
+              - typeName
+              - count
+        averageCycleTimeDays:
+          type: ["number", "null"]
+        bottleneckThresholdDays:
+          type: integer
+      required:
+        - statusCounts
+        - totalActiveValue
+        - totalBuySideValue
+        - totalSellSideValue
+        - contractsByType
+        - bottleneckThresholdDays
+
+    BottleneckContract:
+      type: object
+      properties:
+        id:
+          type: integer
+        contractName:
+          type: string
+        status:
+          type: string
+        currentStageName:
+          type: ["string", "null"]
+        daysAtStage:
+          type: integer
+        submittedByName:
+          type: ["string", "null"]
+      required:
+        - id
+        - contractName
+        - status
+        - daysAtStage
+
+    ReviewerWorkload:
+      type: object
+      properties:
+        userId:
+          type: integer
+        userName:
+          type: string
+        role:
+          type: string
+        assignedCount:
+          type: integer
+      required:
+        - userId
+        - userName
+        - role
+        - assignedCount
+
+    DashboardConfig:
+      type: object
+      properties:
+        showActiveValue:
+          type: boolean
+        showContractsByType:
+          type: boolean
+        showExpiringContracts:
+          type: boolean
+        showAverageCycleTime:
+          type: boolean
+        showBottlenecks:
+          type: boolean
+        showReviewerWorkload:
+          type: boolean
+        bottleneckThresholdDays:
+          type: integer
+        expiringWindowDays:
+          type: integer
+      required:
+        - showActiveValue
+        - showContractsByType
+        - showExpiringContracts
+        - showAverageCycleTime
+        - showBottlenecks
+        - showReviewerWorkload
+        - bottleneckThresholdDays
+        - expiringWindowDays

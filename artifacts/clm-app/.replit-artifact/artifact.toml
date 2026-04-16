@@ -1,0 +1,31 @@
+kind = "web"
+previewPath = "/"
+title = "Contract Lifecycle Management"
+version = "1.0.0"
+id = "artifacts/clm-app"
+router = "path"
+
+[[integratedSkills]]
+name = "react-vite"
+version = "1.0.0"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 26004
+
+[services.development]
+run = "pnpm --filter @workspace/clm-app run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/clm-app", "run", "build" ]
+publicDir = "artifacts/clm-app/dist/public"
+serve = "static"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "26004"
+BASE_PATH = "/"
