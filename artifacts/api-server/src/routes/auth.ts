@@ -69,6 +69,7 @@ router.get("/auth/me", requireAuth, (req, res): void => {
     email: user.email,
     name: user.name,
     photoUrl: user.photoUrl,
+    jobTitle: user.jobTitle,
     department: user.department,
     roles: user.roles || ["submitter"],
     createdAt: user.createdAt,
