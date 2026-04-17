@@ -38,6 +38,14 @@ import {
   ExternalLink,
   Plus,
   MessageSquare,
+  Bell,
+  BellOff,
+  RefreshCw,
+  Calendar,
+  ShieldAlert,
+  Pencil,
+  Check,
+  X,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
@@ -53,6 +61,8 @@ export default function ContractDetail() {
   const [showSendBack, setShowSendBack] = useState(false);
   const [newObligation, setNewObligation] = useState({ obligationType: "", description: "", dueDate: "" });
   const [showObligationForm, setShowObligationForm] = useState(false);
+  const [editingReminderOb, setEditingReminderOb] = useState<number | null>(null);
+  const [editingReminderDays, setEditingReminderDays] = useState<string>("30");
 
   const { data: contract, isLoading } = useGetContract(id, { query: { enabled: !!id } });
   const { data: audit } = useGetContractAudit(id, { query: { enabled: !!id } });
@@ -133,6 +143,27 @@ export default function ContractDetail() {
         qc.invalidateQueries({ queryKey: [`/api/contracts/${id}/obligations`] });
       },
     });
+  }
+
+  async function handleSaveReminderDays(obligationId: number) {
+    const days = parseInt(editingReminderDays, 10);
+    if (isNaN(days) || days < 1) {
+      toast({ title: "Enter a valid number of days", variant: "destructive" });
+      return;
+    }
+    try {
+      await fetch(`/api/obligations/${obligationId}`, {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reminderDays: days }),
+      });
+      toast({ title: `Reminder set to ${days} days before due date` });
+      setEditingReminderOb(null);
+      qc.invalidateQueries({ queryKey: [`/api/contracts/${id}/obligations`] });
+    } catch {
+      toast({ title: "Failed to update reminder", variant: "destructive" });
+    }
   }
 
   const isSubmitter = me?.roles?.includes("submitter") || me?.roles?.includes("admin");
@@ -408,63 +439,152 @@ export default function ContractDetail() {
 
         <TabsContent value="obligations">
           <div className="flex items-center justify-between mb-4">
-            <h3 className="font-medium">Obligations & Milestones</h3>
+            <div>
+              <h3 className="font-medium">Obligations & Milestones</h3>
+              <p className="text-xs text-muted-foreground mt-0.5">Contract Renewal and Cancellation Notice are auto-set by AI screening. Email reminders fire automatically.</p>
+            </div>
             <Button size="sm" onClick={() => setShowObligationForm(true)}>
-              <Plus className="w-4 h-4 mr-1.5" /> Add Obligation
+              <Plus className="w-4 h-4 mr-1.5" /> Add
             </Button>
           </div>
+
           {showObligationForm && (
             <Card className="mb-4">
-              <CardContent className="pt-4 grid grid-cols-3 gap-3">
-                <div>
-                  <Label>Type</Label>
-                  <Input className="mt-1" value={newObligation.obligationType} onChange={(e) => setNewObligation((o) => ({ ...o, obligationType: e.target.value }))} placeholder="e.g. payment_milestone" />
+              <CardContent className="pt-4 space-y-3">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div>
+                    <Label>Type</Label>
+                    <Input className="mt-1" value={newObligation.obligationType} onChange={(e) => setNewObligation((o) => ({ ...o, obligationType: e.target.value }))} placeholder="e.g. payment_milestone" />
+                  </div>
+                  <div>
+                    <Label>Description</Label>
+                    <Input className="mt-1" value={newObligation.description} onChange={(e) => setNewObligation((o) => ({ ...o, description: e.target.value }))} placeholder="Obligation description" />
+                  </div>
+                  <div>
+                    <Label>Due Date</Label>
+                    <Input className="mt-1" type="date" value={newObligation.dueDate} onChange={(e) => setNewObligation((o) => ({ ...o, dueDate: e.target.value }))} />
+                  </div>
                 </div>
-                <div>
-                  <Label>Description</Label>
-                  <Input className="mt-1" value={newObligation.description} onChange={(e) => setNewObligation((o) => ({ ...o, description: e.target.value }))} placeholder="Obligation description" />
-                </div>
-                <div>
-                  <Label>Due Date</Label>
-                  <Input className="mt-1" type="date" value={newObligation.dueDate} onChange={(e) => setNewObligation((o) => ({ ...o, dueDate: e.target.value }))} />
-                </div>
-                <div className="col-span-3 flex gap-2">
+                <div className="flex gap-2">
                   <Button size="sm" onClick={handleCreateObligation} disabled={createObligation.isPending}>Add</Button>
                   <Button size="sm" variant="ghost" onClick={() => setShowObligationForm(false)}>Cancel</Button>
                 </div>
               </CardContent>
             </Card>
           )}
+
           <div className="space-y-2">
             {!obligations?.length ? (
-              <div className="text-center py-12 text-muted-foreground">No obligations added yet.</div>
-            ) : obligations.map((ob) => {
+              <div className="text-center py-12 text-muted-foreground">
+                <Bell className="w-8 h-8 mx-auto mb-2 opacity-30" />
+                <p className="font-medium">No obligations yet</p>
+                <p className="text-sm mt-0.5">Contract Renewal and Cancellation Notice are created automatically after AI screening.</p>
+              </div>
+            ) : obligations.map((ob: any) => {
               const obDays = daysUntil(ob.dueDate);
-              const obExpiring = obDays !== null && obDays >= 0 && obDays <= 14;
+              const obUrgent = obDays !== null && obDays >= 0 && obDays <= 14;
+              const obWarning = obDays !== null && obDays >= 0 && obDays <= (ob.reminderDays ?? 30);
               const completed = ob.status === "completed";
+              const reminderSent = !!ob.reminderSentAt;
+              const isAuto = ob.obligationType === "contract_renewal" || ob.obligationType === "cancellation_notice";
+              const isEditingThis = editingReminderOb === ob.id;
+
+              const typeIcon = ob.obligationType === "contract_renewal"
+                ? <RefreshCw className="w-4 h-4 text-blue-500 shrink-0" />
+                : ob.obligationType === "cancellation_notice"
+                  ? <ShieldAlert className="w-4 h-4 text-orange-500 shrink-0" />
+                  : <Calendar className="w-4 h-4 text-muted-foreground shrink-0" />;
+
               return (
-                <div key={ob.id} className={cn("flex items-center justify-between p-3 border rounded-lg", completed && "opacity-60")}>
-                  <div className="flex items-center gap-3">
-                    {completed ? (
-                      <CheckCircle className="w-4 h-4 text-green-500 shrink-0" />
-                    ) : obExpiring ? (
-                      <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0" />
-                    ) : (
-                      <div className="w-4 h-4 rounded-full border-2 border-muted-foreground/30 shrink-0" />
-                    )}
-                    <div>
-                      <p className={cn("text-sm font-medium", completed && "line-through")}>{ob.description}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {ob.obligationType && <span className="mr-2 capitalize">{ob.obligationType.replace(/_/g, " ")}</span>}
-                        {ob.dueDate && <span>Due {formatDate(ob.dueDate)}{obDays !== null && !completed && ` (${obDays}d)`}</span>}
-                      </p>
+                <div key={ob.id} className={cn("border rounded-lg p-3 transition-opacity", completed && "opacity-50")}>
+                  <div className="flex items-start gap-3">
+                    {/* Status icon */}
+                    <div className="mt-0.5 shrink-0">
+                      {completed
+                        ? <CheckCircle className="w-4 h-4 text-green-500" />
+                        : obUrgent
+                          ? <AlertTriangle className="w-4 h-4 text-red-500" />
+                          : typeIcon
+                      }
                     </div>
+
+                    <div className="flex-1 min-w-0">
+                      {/* Title row */}
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <p className={cn("text-sm font-medium leading-snug", completed && "line-through text-muted-foreground")}>
+                          {ob.description}
+                        </p>
+                        {isAuto && (
+                          <Badge variant="secondary" className="text-xs py-0 px-1.5 shrink-0">AI</Badge>
+                        )}
+                      </div>
+
+                      {/* Meta row */}
+                      <div className="flex items-center flex-wrap gap-x-3 gap-y-0.5 mt-1">
+                        <span className="text-xs text-muted-foreground capitalize">
+                          {ob.obligationType.replace(/_/g, " ")}
+                        </span>
+                        {ob.dueDate && (
+                          <span className={cn("text-xs", obUrgent ? "text-red-600 font-medium" : obWarning ? "text-amber-600 font-medium" : "text-muted-foreground")}>
+                            Due {formatDate(ob.dueDate)}
+                            {obDays !== null && !completed && ` · ${obDays}d`}
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Reminder row */}
+                      {!completed && (
+                        <div className="flex items-center gap-2 mt-2 flex-wrap">
+                          {reminderSent ? (
+                            <div className="flex items-center gap-1 text-xs text-green-600">
+                              <Bell className="w-3 h-3" />
+                              <span>Reminder sent {formatDate(ob.reminderSentAt)}</span>
+                            </div>
+                          ) : (
+                            <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                              <Bell className="w-3 h-3" />
+                              {isEditingThis ? (
+                                <div className="flex items-center gap-1">
+                                  <span>Email</span>
+                                  <Input
+                                    type="number"
+                                    min="1"
+                                    className="h-5 w-14 text-xs px-1 py-0"
+                                    value={editingReminderDays}
+                                    onChange={(e) => setEditingReminderDays(e.target.value)}
+                                    onKeyDown={(e) => { if (e.key === "Enter") handleSaveReminderDays(ob.id); if (e.key === "Escape") setEditingReminderOb(null); }}
+                                    autoFocus
+                                  />
+                                  <span>days before</span>
+                                  <button onClick={() => handleSaveReminderDays(ob.id)} className="text-green-600 hover:text-green-700">
+                                    <Check className="w-3.5 h-3.5" />
+                                  </button>
+                                  <button onClick={() => setEditingReminderOb(null)} className="text-muted-foreground hover:text-foreground">
+                                    <X className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+                              ) : (
+                                <button
+                                  className="flex items-center gap-1 hover:text-foreground transition-colors group"
+                                  onClick={() => { setEditingReminderOb(ob.id); setEditingReminderDays(String(ob.reminderDays ?? 30)); }}
+                                >
+                                  <span>Email {ob.reminderDays ?? 30}d before</span>
+                                  <Pencil className="w-3 h-3 opacity-0 group-hover:opacity-100 transition-opacity" />
+                                </button>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Action */}
+                    {!completed && (
+                      <Button size="sm" variant="outline" className="shrink-0 h-7 text-xs" onClick={() => handleCompleteObligation(ob.id)}>
+                        Complete
+                      </Button>
+                    )}
                   </div>
-                  {!completed && (
-                    <Button size="sm" variant="outline" onClick={() => handleCompleteObligation(ob.id)}>
-                      Complete
-                    </Button>
-                  )}
                 </div>
               );
             })}

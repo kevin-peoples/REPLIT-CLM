@@ -8,6 +8,7 @@ import { pool } from "@workspace/db";
 import router from "./routes";
 import { logger } from "./lib/logger";
 import "./lib/passport";
+import { startReminderScheduler } from "./lib/reminder-job";
 
 const PgSession = connectPgSimple(session);
 
@@ -66,5 +67,7 @@ app.use(passport.initialize());
 app.use(passport.session());
 
 app.use("/api", router);
+
+startReminderScheduler();
 
 export default app;

@@ -9,6 +9,9 @@ export const obligationsTable = pgTable("obligations", {
   description: text("description").notNull(),
   dueDate: date("due_date").notNull(),
   status: text("status").notNull().default("pending"), // pending | completed | overdue | acknowledged
+  reminderDays: integer("reminder_days").notNull().default(30),
+  reminderSentAt: timestamp("reminder_sent_at", { withTimezone: true }),
+  reminderEmail: text("reminder_email"),
   completedAt: timestamp("completed_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),

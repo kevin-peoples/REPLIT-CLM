@@ -1,6 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { db, contractsTable, screeningCriteriaTable, screeningResultsTable } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import { db, contractsTable, screeningCriteriaTable, screeningResultsTable, obligationsTable, usersTable } from "@workspace/db";
+import { eq, and } from "drizzle-orm";
 import { logger } from "./logger";
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
@@ -140,5 +140,56 @@ async function advanceAfterScreening(
     }).where(eq(contractsTable.id, contractId));
   }
 
+  // Auto-create renewal and cancellation notice obligations (skip if already exist)
+  await createContractObligations(contractId, contract);
+
   logger.info({ contractId, riskScore }, "AI screening complete");
+}
+
+async function createContractObligations(contractId: number, contract: any): Promise<void> {
+  // Look up submitter email for reminders
+  const [submitter] = await db.select({ email: usersTable.email }).from(usersTable).where(eq(usersTable.id, contract.submittedById));
+  const reminderEmail = submitter?.email ?? null;
+
+  // Check existing obligations for this contract so we don't duplicate
+  const existing = await db.select({ obligationType: obligationsTable.obligationType }).from(obligationsTable).where(eq(obligationsTable.contractId, contractId));
+  const existingTypes = new Set(existing.map((o) => o.obligationType));
+
+  const toInsert: any[] = [];
+
+  // 1. Contract Renewal obligation — due on the expiration date
+  if (contract.expirationDate && !existingTypes.has("contract_renewal")) {
+    toInsert.push({
+      contractId,
+      obligationType: "contract_renewal",
+      description: `Contract expires on ${contract.expirationDate}. Review and decide whether to renew or let expire.`,
+      dueDate: contract.expirationDate,
+      status: "pending",
+      reminderDays: 30,
+      reminderEmail,
+    });
+  }
+
+  // 2. Cancellation Notice obligation — due noticePeriodDays before expiration
+  if (contract.expirationDate && contract.noticePeriodDays && contract.noticePeriodDays > 0 && !existingTypes.has("cancellation_notice")) {
+    const expiry = new Date(contract.expirationDate);
+    const noticeDate = new Date(expiry);
+    noticeDate.setDate(noticeDate.getDate() - contract.noticePeriodDays);
+    const noticeDateStr = noticeDate.toISOString().split("T")[0];
+
+    toInsert.push({
+      contractId,
+      obligationType: "cancellation_notice",
+      description: `Cancellation notice must be sent by ${noticeDateStr} (${contract.noticePeriodDays} days before expiration on ${contract.expirationDate}).`,
+      dueDate: noticeDateStr,
+      status: "pending",
+      reminderDays: 30,
+      reminderEmail,
+    });
+  }
+
+  if (toInsert.length > 0) {
+    await db.insert(obligationsTable).values(toInsert);
+    logger.info({ contractId, count: toInsert.length }, "Auto-created contract obligations");
+  }
 }
