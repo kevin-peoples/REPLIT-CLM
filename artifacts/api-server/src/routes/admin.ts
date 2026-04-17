@@ -97,7 +97,7 @@ router.post("/admin/contract-types", requireAdmin, async (req, res): Promise<voi
 
 router.patch("/admin/contract-types/:id", requireAdmin, async (req, res): Promise<void> => {
   const id = parseId(req.params.id);
-  const { name, description, formSchema, obligationTypes, isActive } = req.body;
+  const { name, description, formSchema, obligationTypes, isActive, defaultWorkflowId } = req.body;
 
   const updateData: any = {};
   if (name !== undefined) updateData.name = name;
@@ -105,6 +105,7 @@ router.patch("/admin/contract-types/:id", requireAdmin, async (req, res): Promis
   if (formSchema !== undefined) updateData.formSchema = formSchema;
   if (obligationTypes !== undefined) updateData.obligationTypes = obligationTypes;
   if (isActive !== undefined) updateData.isActive = isActive;
+  if (defaultWorkflowId !== undefined) updateData.defaultWorkflowId = defaultWorkflowId ?? null;
 
   const [updated] = await db
     .update(contractTypesTable)
@@ -241,6 +242,22 @@ router.patch("/admin/workflows/:id", requireAdmin, async (req, res): Promise<voi
     .orderBy(workflowStagesTable.stageOrder);
 
   res.json({ ...updated, stages: updatedStages });
+});
+
+router.delete("/admin/workflows/:id", requireAdmin, async (req, res): Promise<void> => {
+  const id = parseId(req.params.id);
+
+  // Clear any contract types pointing at this workflow
+  await db
+    .update(contractTypesTable)
+    .set({ defaultWorkflowId: null })
+    .where(eq(contractTypesTable.defaultWorkflowId, id));
+
+  // Delete stages first, then the workflow definition
+  await db.delete(workflowStagesTable).where(eq(workflowStagesTable.workflowId, id));
+  await db.delete(workflowDefinitionsTable).where(eq(workflowDefinitionsTable.id, id));
+
+  res.json({ message: "Workflow deleted" });
 });
 
 // === SCREENING CRITERIA ===
