@@ -14,13 +14,22 @@ import { formatCurrency, formatDate, statusColor, statusLabel, daysUntil } from 
 import { Plus, Search, FileText, AlertTriangle, ChevronRight } from "lucide-react";
 
 const STATUSES = [
-  "all", "draft", "ai_screening", "returned_for_edits", "in_legal_review",
+  "all", "active", "draft", "ai_screening", "returned_for_edits", "in_legal_review",
   "approved_pending_signature", "awaiting_executed_upload", "fully_executed", "expired",
 ];
 
+function getInitialStatus(): string {
+  if (typeof window === "undefined") return "all";
+  const params = new URLSearchParams(window.location.search);
+  const s = params.get("status");
+  if (!s) return "all";
+  const known = ["all", "draft", "ai_screening", "returned_for_edits", "in_legal_review", "approved_pending_signature", "awaiting_executed_upload", "fully_executed", "expired", "active"];
+  return known.includes(s) ? s : "all";
+}
+
 export default function Contracts() {
   const [search, setSearch] = useState("");
-  const [status, setStatus] = useState("all");
+  const [status, setStatus] = useState(getInitialStatus);
   const [direction, setDirection] = useState("all");
   const [page, setPage] = useState(1);
 
@@ -72,7 +81,9 @@ export default function Contracts() {
             </SelectTrigger>
             <SelectContent>
               {STATUSES.map((s) => (
-                <SelectItem key={s} value={s}>{s === "all" ? "All Statuses" : statusLabel(s)}</SelectItem>
+                <SelectItem key={s} value={s}>
+                  {s === "all" ? "All Statuses" : s === "active" ? "Active (In Progress)" : statusLabel(s)}
+                </SelectItem>
               ))}
             </SelectContent>
           </Select>

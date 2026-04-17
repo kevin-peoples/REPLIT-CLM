@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { eq, desc, and, or, ilike, sql, count, sum } from "drizzle-orm";
+import { eq, desc, and, or, ilike, sql, count, sum, notInArray } from "drizzle-orm";
 import {
   db,
   contractsTable,
@@ -100,7 +100,11 @@ router.get("/contracts", requireAuth, async (req, res): Promise<void> => {
     conditions.push(eq(contractsTable.submittedById, user.id));
   }
 
-  if (status) conditions.push(eq(contractsTable.status, status));
+  if (status === "active") {
+    conditions.push(notInArray(contractsTable.status, ["expired", "fully_executed"]));
+  } else if (status) {
+    conditions.push(eq(contractsTable.status, status));
+  }
   if (direction) conditions.push(eq(contractsTable.direction, direction));
   if (type) conditions.push(eq(contractsTable.contractTypeId, parseInt(type)));
   if (search) {

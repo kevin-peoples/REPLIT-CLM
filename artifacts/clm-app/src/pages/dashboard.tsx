@@ -66,6 +66,7 @@ export default function Dashboard() {
           loading={summaryLoading}
           color="text-blue-600"
           bg="bg-blue-50"
+          href="/contracts?status=active"
         />
         <StatCard
           label="Total Active Value"
@@ -82,6 +83,7 @@ export default function Dashboard() {
           loading={summaryLoading}
           color="text-yellow-600"
           bg="bg-yellow-50"
+          href="/contracts?status=in_legal_review"
         />
         <StatCard
           label="Avg Cycle Time"
@@ -269,29 +271,40 @@ export default function Dashboard() {
   );
 }
 
-function StatCard({ label, value, icon, loading, color, bg }: {
+function StatCard({ label, value, icon, loading, color, bg, href }: {
   label: string;
   value?: string | number | null;
   icon: React.ReactNode;
   loading?: boolean;
   color: string;
   bg: string;
+  href?: string;
 }) {
-  return (
-    <Card>
-      <CardContent className="pt-4">
-        <div className="flex items-center gap-3">
-          <div className={cn("p-2 rounded-lg", bg, color)}>{icon}</div>
-          <div>
-            <p className="text-xs text-muted-foreground">{label}</p>
-            {loading ? (
-              <Skeleton className="h-6 w-16 mt-1" />
-            ) : (
-              <p className="text-xl font-bold">{value ?? "—"}</p>
-            )}
-          </div>
+  const inner = (
+    <CardContent className="pt-4">
+      <div className="flex items-center gap-3">
+        <div className={cn("p-2 rounded-lg", bg, color)}>{icon}</div>
+        <div>
+          <p className="text-xs text-muted-foreground">{label}</p>
+          {loading ? (
+            <Skeleton className="h-6 w-16 mt-1" />
+          ) : (
+            <p className="text-xl font-bold">{value ?? "—"}</p>
+          )}
         </div>
-      </CardContent>
-    </Card>
+      </div>
+    </CardContent>
   );
+
+  if (href) {
+    return (
+      <Link href={href}>
+        <Card className="cursor-pointer hover:shadow-md hover:border-primary/30 transition-all">
+          {inner}
+        </Card>
+      </Link>
+    );
+  }
+
+  return <Card>{inner}</Card>;
 }
