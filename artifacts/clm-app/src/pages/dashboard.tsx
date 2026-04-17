@@ -46,12 +46,12 @@ export default function Dashboard() {
 
   return (
     <AppLayout>
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex items-center justify-between mb-5">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Dashboard</h1>
-          <p className="text-sm text-muted-foreground mt-1">Welcome back, {me?.name}</p>
+          <h1 className="text-xl md:text-2xl font-bold tracking-tight">Dashboard</h1>
+          <p className="text-sm text-muted-foreground mt-0.5">Welcome back, {me?.name?.split(" ")[0]}</p>
         </div>
-        <Button asChild size="sm">
+        <Button asChild size="sm" className="hidden md:inline-flex">
           <Link href="/contracts/new">
             <FileText className="w-4 h-4 mr-2" /> New Contract
           </Link>

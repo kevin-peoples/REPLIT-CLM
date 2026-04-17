@@ -232,7 +232,7 @@ export default function NewContract() {
             <form onSubmit={handleSubmit} className="space-y-6">
 
               {/* Core fields */}
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="col-span-2">
                   <Label htmlFor="contractName">Contract Name <span className="text-destructive">*</span></Label>
                   <Input
@@ -287,7 +287,7 @@ export default function NewContract() {
                     <h3 className="font-medium text-sm">{selectedType?.name} — Specific Fields</h3>
                     <Badge variant="secondary" className="text-xs">{typeFields.length} fields</Badge>
                   </div>
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     {typeFields.map((field) => (
                       <div
                         key={field.name}
@@ -307,7 +307,7 @@ export default function NewContract() {
               {/* Counterparty */}
               <div className="border-t pt-4">
                 <h3 className="font-medium text-sm mb-3">Counterparty Information</h3>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="col-span-2">
                     <Label htmlFor="counterpartyName">Counterparty Legal Name <span className="text-destructive">*</span></Label>
                     <Input
@@ -335,7 +335,7 @@ export default function NewContract() {
               {/* Financial & Timeline */}
               <div className="border-t pt-4">
                 <h3 className="font-medium text-sm mb-3">Financial & Timeline</h3>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <Label htmlFor="contractValue">Contract Value ($)</Label>
                     <Input
