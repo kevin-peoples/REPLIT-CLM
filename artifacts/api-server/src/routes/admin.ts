@@ -306,6 +306,12 @@ router.patch("/admin/screening-criteria/:id", requireAdmin, async (req, res): Pr
   res.json(updated);
 });
 
+router.delete("/admin/screening-criteria/:id", requireAdmin, async (req, res): Promise<void> => {
+  const id = parseId(req.params.id);
+  await db.delete(screeningCriteriaTable).where(eq(screeningCriteriaTable.id, id));
+  res.json({ message: "Criterion deleted" });
+});
+
 // === VALUE TIERS ===
 
 router.get("/admin/value-tiers", requireAdmin, async (_req, res): Promise<void> => {

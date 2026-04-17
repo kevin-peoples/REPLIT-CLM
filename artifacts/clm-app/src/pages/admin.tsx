@@ -13,8 +13,8 @@ import { useQueryClient } from "@tanstack/react-query";
 import {
   useListUsers, useListContractTypes, useListWorkflows, useListScreeningCriteria,
   useListValueTiers, useUpdateUserRoles, useCreateContractType, useUpdateContractType,
-  useDeleteContractType, useUpdateScreeningCriterion, useCreateValueTier,
-  useDeleteValueTier, useGetMe, useCreateWorkflow, useUpdateWorkflow,
+  useDeleteContractType, useUpdateScreeningCriterion, useCreateScreeningCriterion,
+  useCreateValueTier, useDeleteValueTier, useGetMe, useCreateWorkflow, useUpdateWorkflow,
 } from "@workspace/api-client-react";
 import { useToast } from "@/hooks/use-toast";
 import {
@@ -943,37 +943,226 @@ function UsersPanel({ toast, qc }: { toast: ToastFn; qc: QC }) {
 }
 
 // ─── Screening Panel ─────────────────────────────────────────────────────────
+interface CriterionForm { name: string; description: string; isEnabled: boolean }
+const EMPTY_CRITERION: CriterionForm = { name: "", description: "", isEnabled: true };
+
 function ScreeningPanel({ toast, qc }: { toast: ToastFn; qc: QC }) {
   const { data: criteria, isLoading } = useListScreeningCriteria();
+  const createCriterion = useCreateScreeningCriterion();
   const updateCriterion = useUpdateScreeningCriterion();
 
-  function handleToggle(c: typeof criteria extends (infer T)[] | undefined ? T : never) {
-    if (!c) return;
-    updateCriterion.mutate({ id: c.id, data: { isEnabled: !c.isEnabled, name: c.name, description: c.description } }, {
-      onSuccess: () => { toast({ title: "Updated" }); qc.invalidateQueries({ queryKey: ["/api/admin/screening-criteria"] }); },
-    });
+  const [showCreate, setShowCreate] = useState(false);
+  const [newForm, setNewForm] = useState<CriterionForm>(EMPTY_CRITERION);
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editForm, setEditForm] = useState<CriterionForm>(EMPTY_CRITERION);
+
+  function startEdit(c: { id: number; name: string; description: string; isEnabled: boolean }) {
+    setEditingId(c.id);
+    setEditForm({ name: c.name, description: c.description, isEnabled: c.isEnabled });
+  }
+
+  function cancelEdit() { setEditingId(null); }
+
+  function handleCreate() {
+    if (!newForm.name.trim() || !newForm.description.trim()) {
+      toast({ title: "Name and description are required", variant: "destructive" }); return;
+    }
+    createCriterion.mutate(
+      { data: { name: newForm.name.trim(), description: newForm.description.trim(), isEnabled: newForm.isEnabled } },
+      {
+        onSuccess: () => {
+          toast({ title: "Criterion added" });
+          qc.invalidateQueries({ queryKey: ["/api/admin/screening-criteria"] });
+          setNewForm(EMPTY_CRITERION);
+          setShowCreate(false);
+        },
+        onError: () => toast({ title: "Failed to create", variant: "destructive" }),
+      }
+    );
+  }
+
+  function handleSaveEdit() {
+    if (!editForm.name.trim() || !editForm.description.trim()) {
+      toast({ title: "Name and description are required", variant: "destructive" }); return;
+    }
+    updateCriterion.mutate(
+      { id: editingId!, data: { name: editForm.name.trim(), description: editForm.description.trim(), isEnabled: editForm.isEnabled } },
+      {
+        onSuccess: () => {
+          toast({ title: "Criterion updated" });
+          qc.invalidateQueries({ queryKey: ["/api/admin/screening-criteria"] });
+          setEditingId(null);
+        },
+        onError: () => toast({ title: "Failed to update", variant: "destructive" }),
+      }
+    );
+  }
+
+  function handleToggle(c: { id: number; name: string; description: string; isEnabled: boolean }) {
+    updateCriterion.mutate(
+      { id: c.id, data: { name: c.name, description: c.description, isEnabled: !c.isEnabled } },
+      { onSuccess: () => qc.invalidateQueries({ queryKey: ["/api/admin/screening-criteria"] }) }
+    );
+  }
+
+  async function handleDelete(id: number, name: string) {
+    if (!confirm(`Delete "${name}"? This cannot be undone.`)) return;
+    try {
+      const res = await fetch(`/api/admin/screening-criteria/${id}`, { method: "DELETE", credentials: "include" });
+      if (!res.ok) throw new Error();
+      toast({ title: "Criterion deleted" });
+      qc.invalidateQueries({ queryKey: ["/api/admin/screening-criteria"] });
+      if (editingId === id) setEditingId(null);
+    } catch {
+      toast({ title: "Failed to delete", variant: "destructive" });
+    }
   }
 
   return (
     <Card>
-      <CardHeader><CardTitle>AI Screening Criteria</CardTitle><CardDescription>Configure which criteria are checked during AI pre-screening.</CardDescription></CardHeader>
-      <CardContent>
-        {isLoading ? <p className="text-sm text-muted-foreground">Loading…</p> : (
+      <CardHeader>
+        <div className="flex items-center justify-between">
+          <div>
+            <CardTitle>AI Screening Criteria</CardTitle>
+            <CardDescription>
+              Define what Claude checks when pre-screening contracts. Each criterion is evaluated and contributes to the risk score.
+            </CardDescription>
+          </div>
+          <Button size="sm" onClick={() => { setShowCreate(true); setEditingId(null); }} className="gap-1.5">
+            <Plus className="w-4 h-4" /> Add Criterion
+          </Button>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {/* Create form */}
+        {showCreate && (
+          <div className="border rounded-lg p-4 space-y-3 bg-muted/20">
+            <p className="text-sm font-semibold">New Screening Criterion</p>
+            <div className="space-y-2">
+              <div>
+                <Label className="text-xs">Name <span className="text-destructive">*</span></Label>
+                <Input
+                  className="mt-1 h-8 text-sm"
+                  value={newForm.name}
+                  onChange={(e) => setNewForm((f) => ({ ...f, name: e.target.value }))}
+                  placeholder="e.g. Indemnification Clause Check"
+                />
+              </div>
+              <div>
+                <Label className="text-xs">Description <span className="text-destructive">*</span></Label>
+                <textarea
+                  className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm resize-none focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  rows={3}
+                  value={newForm.description}
+                  onChange={(e) => setNewForm((f) => ({ ...f, description: e.target.value }))}
+                  placeholder="Describe what Claude should check for — be specific. e.g. 'Check if the contract contains a mutual indemnification clause that limits liability to the contract value.'"
+                />
+                <p className="text-[10px] text-muted-foreground mt-0.5">Claude uses this description as the evaluation instruction</p>
+              </div>
+              <div className="flex items-center gap-2 pt-1">
+                <Switch checked={newForm.isEnabled} onCheckedChange={(v) => setNewForm((f) => ({ ...f, isEnabled: v })) } />
+                <span className="text-xs text-muted-foreground">Enabled immediately</span>
+              </div>
+            </div>
+            <div className="flex gap-2 pt-1">
+              <Button size="sm" onClick={handleCreate} disabled={!newForm.name || !newForm.description || createCriterion.isPending}>
+                {createCriterion.isPending ? "Adding…" : "Add Criterion"}
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => { setShowCreate(false); setNewForm(EMPTY_CRITERION); }}>
+                <X className="w-4 h-4" />
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* Criteria list */}
+        {isLoading ? (
+          <p className="text-sm text-muted-foreground py-4">Loading…</p>
+        ) : !criteria?.length ? (
+          <div className="text-center py-10 text-sm text-muted-foreground border-2 border-dashed rounded-lg">
+            No screening criteria yet.<br />Add one above to start configuring what Claude evaluates.
+          </div>
+        ) : (
           <div className="space-y-2">
-            {criteria?.map((c) => (
-              <div key={c.id} className="flex items-center justify-between p-3 border rounded-lg">
-                <div>
-                  <p className="font-medium text-sm">{c.name}</p>
-                  {c.description && <p className="text-xs text-muted-foreground">{c.description}</p>}
-                </div>
-                <div className="flex items-center gap-2">
-                  <Switch checked={c.isEnabled} onCheckedChange={() => handleToggle(c)} />
-                  <span className="text-xs text-muted-foreground w-14">{c.isEnabled ? "Enabled" : "Disabled"}</span>
-                </div>
+            {criteria.map((c) => (
+              <div key={c.id} className="border rounded-lg overflow-hidden">
+                {editingId === c.id ? (
+                  /* Edit mode */
+                  <div className="p-4 space-y-3 bg-muted/10">
+                    <div className="flex items-center justify-between mb-1">
+                      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Editing criterion</p>
+                      <Button variant="ghost" size="sm" className="h-6 px-2 text-xs" onClick={cancelEdit}>
+                        <X className="w-3 h-3 mr-1" /> Cancel
+                      </Button>
+                    </div>
+                    <div>
+                      <Label className="text-xs">Name <span className="text-destructive">*</span></Label>
+                      <Input
+                        className="mt-1 h-8 text-sm"
+                        value={editForm.name}
+                        onChange={(e) => setEditForm((f) => ({ ...f, name: e.target.value }))}
+                      />
+                    </div>
+                    <div>
+                      <Label className="text-xs">Description <span className="text-destructive">*</span></Label>
+                      <textarea
+                        className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm resize-none focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                        rows={3}
+                        value={editForm.description}
+                        onChange={(e) => setEditForm((f) => ({ ...f, description: e.target.value }))}
+                      />
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Switch checked={editForm.isEnabled} onCheckedChange={(v) => setEditForm((f) => ({ ...f, isEnabled: v }))} />
+                        <span className="text-xs text-muted-foreground">{editForm.isEnabled ? "Enabled" : "Disabled"}</span>
+                      </div>
+                      <div className="flex gap-2">
+                        <Button size="sm" variant="outline" className="text-destructive hover:text-destructive gap-1.5 h-7 text-xs"
+                          onClick={() => handleDelete(c.id, c.name)}>
+                          <Trash2 className="w-3 h-3" /> Delete
+                        </Button>
+                        <Button size="sm" className="h-7 text-xs gap-1.5" onClick={handleSaveEdit} disabled={updateCriterion.isPending}>
+                          {updateCriterion.isPending ? "Saving…" : "Save Changes"}
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  /* View mode */
+                  <div className={`flex items-start gap-3 p-3 transition-colors ${c.isEnabled ? "" : "opacity-60"}`}>
+                    <div className="flex-1 min-w-0 pt-0.5">
+                      <div className="flex items-center gap-2">
+                        <p className="font-medium text-sm">{c.name}</p>
+                        <Badge variant={c.isEnabled ? "secondary" : "outline"} className="text-[10px]">
+                          {c.isEnabled ? "Active" : "Disabled"}
+                        </Badge>
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-1 leading-relaxed">{c.description}</p>
+                    </div>
+                    <div className="flex items-center gap-1.5 shrink-0 mt-0.5">
+                      <Switch checked={c.isEnabled} onCheckedChange={() => handleToggle(c)} />
+                      <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
+                        onClick={() => startEdit(c)}>
+                        <PenLine className="w-3.5 h-3.5" />
+                      </Button>
+                      <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive"
+                        onClick={() => handleDelete(c.id, c.name)}>
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </Button>
+                    </div>
+                  </div>
+                )}
               </div>
             ))}
-            {!criteria?.length && <p className="text-sm text-muted-foreground text-center py-8">No screening criteria configured.</p>}
           </div>
+        )}
+
+        {criteria && criteria.length > 0 && (
+          <p className="text-xs text-muted-foreground pt-2">
+            {criteria.filter((c) => c.isEnabled).length} of {criteria.length} criteria active —
+            Claude evaluates all active criteria when a contract is submitted for screening.
+          </p>
         )}
       </CardContent>
     </Card>
