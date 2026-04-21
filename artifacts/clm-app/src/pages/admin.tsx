@@ -33,7 +33,7 @@ const STAGE_ROLES = [
   { value: "admin", label: "Admin" },
 ];
 const DIRECTIONS = [
-  { value: "", label: "Any direction" },
+  { value: "any", label: "Any direction" },
   { value: "buy", label: "Buy (we receive services)" },
   { value: "sell", label: "Sell (we provide services)" },
 ];
@@ -89,7 +89,7 @@ function WorkflowEditor({
   const isNew = !workflow?.id;
 
   const [name, setName] = useState(workflow?.name ?? "");
-  const [direction, setDirection] = useState(workflow?.direction ?? "");
+  const [direction, setDirection] = useState(workflow?.direction ?? "any");
   const [department, setDepartment] = useState(workflow?.department ?? "");
   const [isDefault, setIsDefault] = useState(workflow?.isDefault ?? false);
   const [stages, setStages] = useState<StageEditor[]>(workflow?.stages?.map((s) => ({ ...s })) ?? []);
@@ -127,7 +127,7 @@ function WorkflowEditor({
 
     const body = {
       name: name.trim(),
-      direction: direction || null,
+      direction: direction === "any" ? null : direction || null,
       department: department.trim() || null,
       isDefault,
       stages: stages.map((s, i) => ({
@@ -283,10 +283,10 @@ function WorkflowEditor({
 
                   <div>
                     <Label className="text-xs">Assigned Role</Label>
-                    <Select value={stage.assignedRole ?? ""} onValueChange={(v) => updateStage(idx, { assignedRole: v || null })}>
+                    <Select value={stage.assignedRole ?? "none"} onValueChange={(v) => updateStage(idx, { assignedRole: v === "none" ? null : v })}>
                       <SelectTrigger className="mt-1 h-8 text-sm"><SelectValue placeholder="No specific role" /></SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="">No specific role</SelectItem>
+                        <SelectItem value="none">No specific role</SelectItem>
                         {STAGE_ROLES.map((r) => <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>)}
                       </SelectContent>
                     </Select>
