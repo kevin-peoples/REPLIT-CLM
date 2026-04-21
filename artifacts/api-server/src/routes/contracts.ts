@@ -60,6 +60,18 @@ function parseId(raw: string | string[]): number {
   return parseInt(s, 10);
 }
 
+type WorkflowStageRow = typeof workflowStagesTable.$inferSelect;
+
+function canActOnStage(user: any, contractStatus: string, stage: WorkflowStageRow | null): boolean {
+  const roles: string[] = user?.roles ?? [];
+  if (roles.includes("admin")) return true;
+  if (stage?.assignedUserId) return stage.assignedUserId === user.id;
+  if (stage?.assignedRole) return roles.includes(stage.assignedRole);
+  if (contractStatus === "in_legal_review") return roles.includes("legal_reviewer");
+  if (contractStatus === "approved_pending_signature") return roles.includes("designated_signer");
+  return false;
+}
+
 async function logAudit(
   contractId: number,
   userId: number | null,
@@ -564,20 +576,37 @@ router.post("/contracts/:id/approve", requireAuth, async (req, res): Promise<voi
     return;
   }
 
+  const APPROVABLE_STATUSES = new Set(["in_legal_review", "approved_pending_signature"]);
+  if (!APPROVABLE_STATUSES.has(contract.status)) {
+    res.status(409).json({ error: `Cannot approve contract in status '${contract.status}'` });
+    return;
+  }
+
   const prevStatus = contract.status;
 
-  // Advance to next stage in workflow
-  let nextStatus = "approved_pending_signature";
-  let nextStageId: number | null = null;
-
+  // Load current stage (if any) and authorize before any state change
+  let currentStage: WorkflowStageRow | null = null;
+  let stages: WorkflowStageRow[] = [];
   if (contract.currentWorkflowId && contract.currentStageId) {
-    const stages = await db
+    stages = await db
       .select()
       .from(workflowStagesTable)
       .where(eq(workflowStagesTable.workflowId, contract.currentWorkflowId))
       .orderBy(workflowStagesTable.stageOrder);
+    currentStage = stages.find((s) => s.id === contract.currentStageId) ?? null;
+  }
 
-    const currentIndex = stages.findIndex((s) => s.id === contract.currentStageId);
+  if (!canActOnStage(user, contract.status, currentStage)) {
+    res.status(403).json({ error: "You are not authorized to approve this contract" });
+    return;
+  }
+
+  // Advance to next stage in workflow
+  let nextStatus: string;
+  let nextStageId: number | null = null;
+
+  if (currentStage) {
+    const currentIndex = stages.findIndex((s) => s.id === currentStage!.id);
     const nextStage = stages[currentIndex + 1];
 
     if (nextStage) {
@@ -595,6 +624,11 @@ router.post("/contracts/:id/approve", requireAuth, async (req, res): Promise<voi
       // No more stages - workflow complete, ready for executed file upload
       nextStatus = "awaiting_executed_upload";
     }
+  } else {
+    // No workflow context: legal_review -> awaiting signature, signature -> upload
+    nextStatus = contract.status === "approved_pending_signature"
+      ? "awaiting_executed_upload"
+      : "approved_pending_signature";
   }
 
   const [updated] = await db
@@ -627,6 +661,30 @@ router.post("/contracts/:id/send-back", requireAuth, async (req, res): Promise<v
 
   if (!contract) {
     res.status(404).json({ error: "Contract not found" });
+    return;
+  }
+
+  const SEND_BACK_STATUSES = new Set(["in_legal_review", "approved_pending_signature", "ai_screening"]);
+  if (!SEND_BACK_STATUSES.has(contract.status)) {
+    res.status(409).json({ error: `Cannot send back contract in status '${contract.status}'` });
+    return;
+  }
+
+  let currentStage: WorkflowStageRow | null = null;
+  if (contract.currentWorkflowId && contract.currentStageId) {
+    const [s] = await db
+      .select()
+      .from(workflowStagesTable)
+      .where(eq(workflowStagesTable.id, contract.currentStageId));
+    currentStage = s ?? null;
+    if (currentStage && !currentStage.canSendBack && !user?.roles?.includes("admin")) {
+      res.status(403).json({ error: "This stage does not permit sending back" });
+      return;
+    }
+  }
+
+  if (!canActOnStage(user, contract.status, currentStage)) {
+    res.status(403).json({ error: "You are not authorized to send back this contract" });
     return;
   }
 
