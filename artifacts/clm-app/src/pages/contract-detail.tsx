@@ -63,6 +63,38 @@ export default function ContractDetail() {
   const [showObligationForm, setShowObligationForm] = useState(false);
   const [editingReminderOb, setEditingReminderOb] = useState<number | null>(null);
   const [editingReminderDays, setEditingReminderDays] = useState<string>("30");
+  const [uploadingExecuted, setUploadingExecuted] = useState(false);
+
+  async function handleUploadExecuted(file: File) {
+    setUploadingExecuted(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const uploadRes = await fetch("/api/uploads/drive", { method: "POST", body: fd, credentials: "include" });
+      if (!uploadRes.ok) {
+        const err = await uploadRes.json().catch(() => ({}));
+        throw new Error(err.error || "Drive upload failed");
+      }
+      const uploadData = await uploadRes.json();
+      const finalRes = await fetch(`/api/contracts/${id}/upload-executed`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ driveFileId: uploadData.driveFileId, fileName: uploadData.fileName }),
+      });
+      if (!finalRes.ok) {
+        const err = await finalRes.json().catch(() => ({}));
+        throw new Error(err.error || "Failed to mark contract executed");
+      }
+      toast({ title: "Executed contract uploaded", description: uploadData.fileName });
+      qc.invalidateQueries({ queryKey: [`/api/contracts/${id}`] });
+      qc.invalidateQueries({ queryKey: [`/api/contracts/${id}/audit`] });
+    } catch (err: any) {
+      toast({ title: "Upload failed", description: err.message, variant: "destructive" });
+    } finally {
+      setUploadingExecuted(false);
+    }
+  }
 
   const { data: contract, isLoading } = useGetContract(id, { query: { enabled: !!id } });
   const { data: audit } = useGetContractAudit(id, { query: { enabled: !!id } });
@@ -244,6 +276,25 @@ export default function ContractDetail() {
             <Button size="sm" onClick={() => handleAction("approve")} disabled={approve.isPending}>
               <CheckCircle className="w-4 h-4 mr-1.5" /> Mark as Signed
             </Button>
+          )}
+          {contract.status === "awaiting_executed_upload" && (isSigner || isAdmin) && (
+            <div className="flex items-center gap-2">
+              <Label htmlFor="executedUpload" className="cursor-pointer inline-flex items-center gap-1.5 h-9 px-3 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:opacity-90">
+                <CheckCircle className="w-4 h-4" /> {uploadingExecuted ? "Uploading..." : "Upload Executed Contract"}
+              </Label>
+              <Input
+                id="executedUpload"
+                type="file"
+                accept=".pdf,.doc,.docx"
+                disabled={uploadingExecuted}
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) handleUploadExecuted(file);
+                  e.target.value = "";
+                }}
+              />
+            </div>
           )}
           {isAdmin && (contract.status === "ai_screening" || contract.status === "returned_for_edits") && (
             <Button size="sm" variant="ghost" onClick={() => handleAction("rescreen")} disabled={rescreen.isPending}>

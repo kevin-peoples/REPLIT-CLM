@@ -1,4 +1,5 @@
 import { Router, type IRouter } from "express";
+import multer from "multer";
 import { eq, desc, and, or, ilike, sql, count, sum, notInArray } from "drizzle-orm";
 import {
   db,
@@ -15,8 +16,44 @@ import { requireAuth, requireRole } from "../middlewares/auth";
 import { runAiScreening } from "../lib/ai-screening";
 import { sendSignatureEmail } from "../lib/email";
 import { logger } from "../lib/logger";
+import { uploadToDrive, isDriveConfigured } from "../lib/drive";
 
 const router: IRouter = Router();
+
+const ALLOWED_UPLOAD_MIMES = new Set([
+  "application/pdf",
+  "application/msword",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "text/plain",
+]);
+const ALLOWED_UPLOAD_EXTS = /\.(pdf|doc|docx|txt)$/i;
+
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 25 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    const mimeOk = ALLOWED_UPLOAD_MIMES.has(file.mimetype);
+    const extOk = ALLOWED_UPLOAD_EXTS.test(file.originalname);
+    if (mimeOk && extOk) {
+      cb(null, true);
+    } else {
+      cb(new Error("Unsupported file type. Allowed: PDF, DOC, DOCX, TXT"));
+    }
+  },
+});
+
+function handleUploadMiddleware(field: string) {
+  const mw = upload.single(field);
+  return (req: any, res: any, next: any) => {
+    mw(req, res, (err: any) => {
+      if (!err) return next();
+      if (err.code === "LIMIT_FILE_SIZE") {
+        return res.status(413).json({ error: "File exceeds 25MB limit" });
+      }
+      return res.status(400).json({ error: err.message || "Upload rejected" });
+    });
+  };
+}
 
 function parseId(raw: string | string[]): number {
   const s = Array.isArray(raw) ? raw[0] : raw;
@@ -555,7 +592,8 @@ router.post("/contracts/:id/approve", requireAuth, async (req, res): Promise<voi
         nextStatus = "in_legal_review";
       }
     } else {
-      nextStatus = "approved_pending_signature";
+      // No more stages - workflow complete, ready for executed file upload
+      nextStatus = "awaiting_executed_upload";
     }
   }
 
@@ -640,6 +678,30 @@ router.post("/contracts/:id/comment", requireAuth, async (req, res): Promise<voi
   res.status(201).json(result);
 });
 
+// POST /uploads/drive  - upload a file to Google Drive, return file metadata
+router.post("/uploads/drive", requireAuth, handleUploadMiddleware("file"), async (req, res): Promise<void> => {
+  if (!isDriveConfigured()) {
+    res.status(503).json({ error: "Google Drive is not configured on the server" });
+    return;
+  }
+  const file = (req as any).file as Express.Multer.File | undefined;
+  if (!file) {
+    res.status(400).json({ error: "No file provided" });
+    return;
+  }
+  try {
+    const result = await uploadToDrive(file.buffer, file.originalname, file.mimetype || "application/octet-stream");
+    res.json({
+      driveFileId: result.id,
+      fileName: result.name,
+      webViewLink: result.webViewLink,
+    });
+  } catch (err: any) {
+    logger.error({ err: err?.message }, "Drive upload endpoint failed");
+    res.status(500).json({ error: "Upload to Google Drive failed" });
+  }
+});
+
 // POST /contracts/:id/upload-document
 router.post("/contracts/:id/upload-document", requireAuth, async (req, res): Promise<void> => {
   const id = parseId(req.params.id);
@@ -673,7 +735,23 @@ router.post("/contracts/:id/upload-executed", requireAuth, async (req, res): Pro
     return;
   }
 
-  const prevStatus = "awaiting_executed_upload";
+  const roles: string[] = user?.roles ?? [];
+  if (!roles.includes("designated_signer") && !roles.includes("admin")) {
+    res.status(403).json({ error: "Only designated signers or admins may upload executed contracts" });
+    return;
+  }
+
+  const [contract] = await db.select().from(contractsTable).where(eq(contractsTable.id, id));
+  if (!contract) {
+    res.status(404).json({ error: "Contract not found" });
+    return;
+  }
+  if (contract.status !== "awaiting_executed_upload") {
+    res.status(409).json({ error: `Cannot upload executed contract from status '${contract.status}'` });
+    return;
+  }
+
+  const prevStatus = contract.status;
   const [updated] = await db
     .update(contractsTable)
     .set({

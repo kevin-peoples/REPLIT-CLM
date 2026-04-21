@@ -133,11 +133,33 @@ export default function NewContract() {
     description: "",
     department: (me as any)?.department ?? "",
     driveFileId: "",
+    driveFileName: "",
     autoRenewal: false,
     noticePeriodDays: "",
   });
 
   const [customFields, setCustomFields] = useState<Record<string, string | boolean>>({});
+  const [uploadingFile, setUploadingFile] = useState(false);
+
+  async function handleFileUpload(file: File) {
+    setUploadingFile(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const res = await fetch("/api/uploads/drive", { method: "POST", body: fd, credentials: "include" });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || "Upload failed");
+      }
+      const data = await res.json();
+      setForm((f) => ({ ...f, driveFileId: data.driveFileId, driveFileName: data.fileName }));
+      toast({ title: "File uploaded to Drive", description: data.fileName });
+    } catch (err: any) {
+      toast({ title: "Upload failed", description: err.message, variant: "destructive" });
+    } finally {
+      setUploadingFile(false);
+    }
+  }
 
   function setField(field: string, value: string | boolean) {
     setForm((f) => ({ ...f, [field]: value }));
@@ -412,14 +434,28 @@ export default function NewContract() {
                     )}
                   </div>
                   <div>
-                    <Label htmlFor="driveFileId">Google Drive File ID</Label>
-                    <Input
-                      id="driveFileId"
-                      className="mt-1.5"
-                      placeholder="Paste the file ID from the Google Drive URL"
-                      value={form.driveFileId}
-                      onChange={(e) => setField("driveFileId", e.target.value)}
-                    />
+                    <Label htmlFor="contractFile">Contract Document</Label>
+                    <div className="mt-1.5 flex items-center gap-3">
+                      <Input
+                        id="contractFile"
+                        type="file"
+                        accept=".pdf,.doc,.docx,.txt"
+                        disabled={uploadingFile}
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) handleFileUpload(file);
+                        }}
+                      />
+                      {uploadingFile && <span className="text-xs text-muted-foreground whitespace-nowrap">Uploading…</span>}
+                    </div>
+                    {form.driveFileId && (
+                      <p className="text-xs text-green-700 dark:text-green-400 mt-1.5">
+                        Uploaded to Drive: {form.driveFileName}
+                      </p>
+                    )}
+                    <p className="text-[11px] text-muted-foreground mt-1">
+                      Optional — upload the contract PDF. It will be stored in your shared Google Drive.
+                    </p>
                   </div>
                   <div>
                     <Label htmlFor="description">Description / Notes</Label>
