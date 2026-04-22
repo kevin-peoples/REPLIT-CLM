@@ -1,8 +1,18 @@
 import passport from "passport";
 import { Strategy as GoogleStrategy } from "passport-google-oauth20";
-import { db, usersTable } from "@workspace/db";
+import { db, usersTable, approvedDomainsTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { logger } from "./logger";
+
+async function isDomainAllowed(email: string): Promise<boolean> {
+  const domains = await db
+    .select()
+    .from(approvedDomainsTable)
+    .where(eq(approvedDomainsTable.active, true));
+  if (domains.length === 0) return true; // if no domains configured, allow all
+  const emailDomain = email.split("@")[1]?.toLowerCase();
+  return domains.some((d) => d.domain.toLowerCase() === emailDomain);
+}
 
 const GOOGLE_CALLBACK_URL = (() => {
   const domains = process.env.REPLIT_DOMAINS;
@@ -48,6 +58,11 @@ passport.use(
 
         if (!email) {
           return done(new Error("No email from Google profile"), undefined);
+        }
+
+        const allowed = await isDomainAllowed(email);
+        if (!allowed) {
+          return done(new Error("Your email domain is not authorized to access this application"), undefined);
         }
 
         const { jobTitle, department } = await fetchWorkspaceProfile(_accessToken);

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { AppLayout } from "@/components/layout/app-layout";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -21,7 +21,7 @@ import {
   Users, FileText, GitBranch, Brain, DollarSign, Plus, Trash2, X,
   ChevronUp, ChevronDown, Settings2, Eye, ArrowLeft, GripVertical,
   Type, AlignLeft, Hash, Calendar, List, ToggleLeft, PenLine,
-  CheckCircle2, RotateCcw, UserCheck, GitBranch as StageIcon,
+  CheckCircle2, RotateCcw, UserCheck, GitBranch as StageIcon, ShieldCheck,
 } from "lucide-react";
 import { useLocation } from "wouter";
 
@@ -1245,6 +1245,163 @@ function ValueTiersPanel({ toast, qc }: { toast: ToastFn; qc: QC }) {
   );
 }
 
+// ─── Access / Approved Domains Panel ─────────────────────────────────────────
+function AccessPanel({ toast }: { toast: ToastFn; qc: QC }) {
+  const [newDomain, setNewDomain] = useState("");
+  const [adding, setAdding] = useState(false);
+  const [domainList, setDomainList] = useState<any[]>([]);
+  const [loadingDomains, setLoadingDomains] = useState(true);
+
+  async function fetchDomains() {
+    setLoadingDomains(true);
+    try {
+      const res = await fetch("/api/approved-domains", { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to load");
+      const data = await res.json();
+      setDomainList(data);
+    } catch {
+      toast({ title: "Failed to load domains", variant: "destructive" });
+    } finally {
+      setLoadingDomains(false);
+    }
+  }
+
+  useEffect(() => { fetchDomains(); }, []);
+
+  async function handleAdd() {
+    const trimmed = newDomain.trim().toLowerCase().replace(/^@/, "");
+    if (!trimmed) return;
+    setAdding(true);
+    try {
+      const res = await fetch("/api/approved-domains", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ domain: trimmed }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || "Failed to add domain");
+      }
+      setNewDomain("");
+      toast({ title: "Domain added" });
+      fetchDomains();
+    } catch (err: any) {
+      toast({ title: err.message, variant: "destructive" });
+    } finally {
+      setAdding(false);
+    }
+  }
+
+  async function handleToggle(id: number, active: boolean) {
+    try {
+      const res = await fetch(`/api/approved-domains/${id}`, {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ active }),
+      });
+      if (!res.ok) throw new Error("Failed to update");
+      toast({ title: active ? "Domain enabled" : "Domain disabled" });
+      fetchDomains();
+    } catch {
+      toast({ title: "Update failed", variant: "destructive" });
+    }
+  }
+
+  async function handleDelete(id: number, domain: string) {
+    if (!confirm(`Remove "${domain}" from approved domains?`)) return;
+    try {
+      const res = await fetch(`/api/approved-domains/${id}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+      if (!res.ok) throw new Error("Failed to delete");
+      toast({ title: "Domain removed" });
+      fetchDomains();
+    } catch {
+      toast({ title: "Delete failed", variant: "destructive" });
+    }
+  }
+
+  return (
+    <div className="space-y-6">
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <ShieldCheck className="w-5 h-5 text-accent" />
+            Approved Sign-In Domains
+          </CardTitle>
+          <CardDescription>
+            Only users with email addresses from these domains can sign in with Google. If no domains are listed,
+            any Google account will be accepted.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {/* Add domain */}
+          <div className="flex gap-2">
+            <Input
+              placeholder="e.g. ancora.com"
+              value={newDomain}
+              onChange={(e) => setNewDomain(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && handleAdd()}
+              className="max-w-xs"
+            />
+            <Button onClick={handleAdd} disabled={adding || !newDomain.trim()}>
+              <Plus className="w-4 h-4 mr-1.5" /> Add Domain
+            </Button>
+          </div>
+
+          {/* Domain list */}
+          {loadingDomains ? (
+            <div className="space-y-2">
+              {[1, 2].map((i) => (
+                <div key={i} className="h-12 bg-muted animate-pulse" />
+              ))}
+            </div>
+          ) : domainList.length === 0 ? (
+            <div className="py-10 text-center text-muted-foreground text-sm">
+              No approved domains configured — any Google account can currently sign in.
+            </div>
+          ) : (
+            <div className="border divide-y">
+              {domainList.map((d) => (
+                <div key={d.id} className="flex items-center justify-between px-4 py-3">
+                  <div className="flex items-center gap-3">
+                    <div className={`w-2 h-2 rounded-full shrink-0 ${d.active ? "bg-green-500" : "bg-muted-foreground"}`} />
+                    <span className="font-mono text-sm font-medium">{d.domain}</span>
+                    {!d.active && (
+                      <Badge variant="secondary" className="text-xs">Disabled</Badge>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Switch
+                      checked={d.active}
+                      onCheckedChange={(v) => handleToggle(d.id, v)}
+                    />
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                      onClick={() => handleDelete(d.id, d.domain)}
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <p className="text-xs text-muted-foreground">
+            Changes take effect immediately for all new sign-in attempts.
+          </p>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
 // ─── Page ─────────────────────────────────────────────────────────────────────
 export default function Admin() {
   const [, setLocation] = useLocation();
@@ -1270,12 +1427,14 @@ export default function Admin() {
           <TabsTrigger value="workflows" className="gap-2"><GitBranch className="w-4 h-4" /> Workflows</TabsTrigger>
           <TabsTrigger value="screening" className="gap-2"><Brain className="w-4 h-4" /> AI Screening</TabsTrigger>
           <TabsTrigger value="tiers" className="gap-2"><DollarSign className="w-4 h-4" /> Value Tiers</TabsTrigger>
+          <TabsTrigger value="access" className="gap-2"><ShieldCheck className="w-4 h-4" /> Access</TabsTrigger>
         </TabsList>
         <TabsContent value="users"><UsersPanel toast={toast} qc={qc} /></TabsContent>
         <TabsContent value="types"><ContractTypesPanel toast={toast} qc={qc} /></TabsContent>
         <TabsContent value="workflows"><WorkflowsPanel toast={toast} qc={qc} /></TabsContent>
         <TabsContent value="screening"><ScreeningPanel toast={toast} qc={qc} /></TabsContent>
         <TabsContent value="tiers"><ValueTiersPanel toast={toast} qc={qc} /></TabsContent>
+        <TabsContent value="access"><AccessPanel toast={toast} qc={qc} /></TabsContent>
       </Tabs>
     </AppLayout>
   );

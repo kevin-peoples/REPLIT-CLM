@@ -7,3 +7,4 @@ export * from "./audit";
 export * from "./screening";
 export * from "./obligations";
 export * from "./dashboard-config";
+export * from "./approved-domains";

@@ -9,6 +9,7 @@ import {
   screeningCriteriaTable,
   valueTiersTable,
   dashboardConfigTable,
+  approvedDomainsTable,
 } from "@workspace/db";
 import { requireAuth, requireAdmin } from "../middlewares/auth";
 
@@ -399,6 +400,61 @@ router.patch("/admin/dashboard-config", requireAdmin, async (req, res): Promise<
   }
 
   res.json(config);
+});
+
+// === APPROVED DOMAINS ===
+
+router.get("/approved-domains", requireAdmin, async (_req, res): Promise<void> => {
+  const domains = await db
+    .select()
+    .from(approvedDomainsTable)
+    .orderBy(approvedDomainsTable.domain);
+  res.json(domains);
+});
+
+router.post("/approved-domains", requireAdmin, async (req, res): Promise<void> => {
+  const { domain } = req.body as { domain?: string };
+  if (!domain || typeof domain !== "string") {
+    res.status(400).json({ error: "domain is required" });
+    return;
+  }
+  const normalized = domain.toLowerCase().replace(/^@/, "").trim();
+  if (!normalized || !/^[a-z0-9][a-z0-9\-\.]*\.[a-z]{2,}$/.test(normalized)) {
+    res.status(400).json({ error: "Invalid domain format" });
+    return;
+  }
+  const [created] = await db
+    .insert(approvedDomainsTable)
+    .values({ domain: normalized })
+    .onConflictDoUpdate({ target: approvedDomainsTable.domain, set: { active: true } })
+    .returning();
+  res.status(201).json(created);
+});
+
+router.patch("/approved-domains/:id", requireAdmin, async (req, res): Promise<void> => {
+  const id = parseId(req.params.id);
+  const { active } = req.body as { active?: boolean };
+  if (typeof active !== "boolean") {
+    res.status(400).json({ error: "active (boolean) is required" });
+    return;
+  }
+  const [updated] = await db
+    .update(approvedDomainsTable)
+    .set({ active })
+    .where(eq(approvedDomainsTable.id, id))
+    .returning();
+  if (!updated) { res.status(404).json({ error: "Domain not found" }); return; }
+  res.json(updated);
+});
+
+router.delete("/approved-domains/:id", requireAdmin, async (req, res): Promise<void> => {
+  const id = parseId(req.params.id);
+  const [deleted] = await db
+    .delete(approvedDomainsTable)
+    .where(eq(approvedDomainsTable.id, id))
+    .returning();
+  if (!deleted) { res.status(404).json({ error: "Domain not found" }); return; }
+  res.json({ ok: true });
 });
 
 export default router;
