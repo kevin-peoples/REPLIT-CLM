@@ -33,11 +33,13 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="p-4 font-bold text-xl tracking-tight text-sidebar-foreground flex items-center gap-2">
-        <div className="w-8 h-8 bg-primary rounded flex items-center justify-center text-primary-foreground shrink-0">
-          <FileText className="w-5 h-5" />
-        </div>
-        CLM Pro
+      <div className="px-4 pt-5 pb-4 border-b border-sidebar-border">
+        <img
+          src="/ancora-logo.webp"
+          alt="Ancora"
+          className="h-9 w-auto select-none"
+          draggable={false}
+        />
       </div>
 
       <div className="px-4 py-2">

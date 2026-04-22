@@ -101,14 +101,16 @@ export default function Login() {
         <div className="flex-1 flex flex-col justify-center px-6 py-12 lg:px-20 xl:px-24 overflow-y-auto">
           <div className="mx-auto w-full max-w-lg">
             {/* Logo */}
-            <div className="flex items-center gap-3 mb-10">
-              <div className="w-10 h-10 bg-primary rounded flex items-center justify-center text-primary-foreground">
-                <FileText className="w-6 h-6" />
-              </div>
-              <h2 className="text-2xl font-bold tracking-tight">CLM Pro</h2>
+            <div className="flex items-center mb-10">
+              <img
+                src="/ancora-logo.webp"
+                alt="Ancora"
+                className="h-12 w-auto select-none"
+                draggable={false}
+              />
             </div>
 
-            <h1 className="text-3xl font-semibold tracking-tight text-foreground mb-1">
+            <h1 className="!text-[34px] mb-2 text-foreground">
               Sign in to your account
             </h1>
             <p className="text-sm text-muted-foreground mb-8">
